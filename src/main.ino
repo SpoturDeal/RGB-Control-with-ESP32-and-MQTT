@@ -81,7 +81,7 @@ void loop() {
       if (espClient.available()) {    // If there is a request from user
         errVal=false;
         eepVal="Not updated";
-        respMsg = "OK";     // HTTP Respons Message
+        respMsg = "Ready";     // HTTP Respons Message
         // Read the first line of of the request
         String req = espClient.readStringUntil('\r');
         
@@ -132,18 +132,23 @@ String interfaceUser(){
   ui += "<body><h1>RGB(W) control with WiFi</h1>";
   ui += "<button type=\"button\" class=\"btn btn-success btn myBtn\" style=\"display:none;\" id=\"led-on\"><i class=\"far fa-lightbulb fa-2x\"></i>Switch On</button>";
   ui += "<button type=\"button\" class=\"btn btn-secondary btn myBtn\" style=\"display:none;\" id=\"led-off\"><i class=\"fas fa-lightbulb fa-2x\"></i>Switch Off</button><br>";
-  ui += "<div> Select a colour.</div>";
+  ui += "<div>Move slider to change colour</div>";
+  ui += "<div><table><tr><td>Red</td><td><input id=\"red\" class=\"range\" type=\"range\" min=\"0\" max=\"255\" value=\""+(String)currRed+"\"></td><td style=\"text-align: right;\"><span id=\"vred\">"+(String)currRed+"</span></td></tr>";
+  ui += "<tr><td>Green</td><td><input id=\"green\" class=\"range\" type=\"range\" min=\"0\" max=\"255\" value=\""+(String)currGreen+"\"></td><td style=\"text-align:right;\"><span id=\"vgreen\">"+(String)currGreen+"</span></td></tr>";
+  ui += "<tr><td>Blue</td><td><input id=\"blue\" class=\"range\" type=\"range\" min=\"0\" max=\"255\" value=\""+(String)currBlue+"\"></td><td style=\"text-align:right;\"><span id=\"vblue\">"+(String)currBlue+"</span></td></tr>";
+  ui += "<tr><td>White</td><td><input id=\"white\"class=\"range\" type=\"range\" min=\"0\" max=\"255\" value=\""+(String)currWhite+"\"></td><td style=\"text-align:right;\"><span id=\"vwhite\">"+(String)currWhite+"</span></td></tr></table><div>";
+  ui += "<div>Or select a colour with the colour picker.</div>";
   ui += "<div><input type=\"text\" id=\"custom\" /></div>";
-  ui += "<div id=\"w\" class=\"alert alert-success\" style=\"margin-top:270px;\" role=\"alert\" style=\"display:none;\"></div>";
-  ui += "<div id=\"r\" class=\"alert alert-info\" style=\"margin-top:270px;\" role=\"alert\">"+respMsg+"</div>";
+  ui += "<div id=\"w\" class=\"alert alert-info\" role=\"alert\">"+respMsg+"</div>";
   ui +="<script src=\"https://code.jquery.com/jquery-3.2.1.min.js\"></script><script src=\"https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js\" ></script><script src=\"https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js\"></script>";
   ui += "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/spectrum/1.8.0/spectrum.min.js\"></script>";
   ui += "<script>$(document).ready(function($) {";
-  ui += "function send(dowhat){$('#r').hide(); $('#w').show(); $.get({url:'/api/command/' + dowhat,dataType:'json',success:function(data){$('#w').hide(); $('#r').html(data.message).show();";
+  ui += "function send(dowhat){$('#w').html('Please wait until action has finished.'); $.get({url:'/api/command/' + dowhat,dataType:'json',success:function(data){$('#w').html(data.message);";
   ui += " }}); } ";
+  ui += "$('.range').change(function(){ send($(this).attr('id')+'='+$(this).val()); $('#v'+$(this).attr('id')).html($(this).val());  });";
   ui += "$('.myBtn').click(function(){ var per= $(this).attr('id').split('-');$(this).hide();$('#'+per[0]+'-'+(per[1]=='off'?'on':'off')).show(); send(per[1]);  });";
   ui += "$('.myBtn').hide(); $('#led-"+onoff+"' ).show();"; // end buttons
-  ui += "$('#custom').spectrum({color:\""+clr+"\",preferredFormat: \"hex\", showInput: true, showPalette: true, ";
+  ui += "$('#custom').spectrum({color:\""+clr+"\",preferredFormat: \"hex\", showInput: true, showPalette: true, hideAfterPaletteSelect:true, ";
   ui += "palette: [[\"#000\",\"#444\",\"#666\",\"#999\",\"#ccc\",\"#eee\",\"#f3f3f3\",\"#fff\"], [\"#f00\",\"#f90\",\"#ff0\",\"#0f0\",\"#0ff\",\"#00f\",\"#90f\",\"#f0f\"], [\"#f4cccc\",\"#fce5cd\",\"#fff2cc\",\"#d9ead3\",\"#d0e0e3\",\"#cfe2f3\",\"#d9d2e9\",\"#ead1dc\"], [\"#ea9999\",\"#f9cb9c\",\"#ffe599\",\"#b6d7a8\",\"#a2c4c9\",\"#9fc5e8\",\"#b4a7d6\",\"#d5a6bd\"], [\"#e06666\",\"#f6b26b\",\"#ffd966\",\"#93c47d\",\"#76a5af\",\"#6fa8dc\",\"#8e7cc3\",\"#c27ba0\"], [\"#c00\",\"#e69138\",\"#f1c232\",\"#6aa84f\",\"#45818e\",\"#3d85c6\",\"#674ea7\",\"#a64d79\"], [\"#900\",\"#b45f06\",\"#bf9000\",\"#38761d\",\"#134f5c\",\"#0b5394\",\"#351c75\",\"#741b47\"], [\"#600\",\"#783f04\",\"#7f6000\",\"#274e13\",\"#0c343d\",\"#073763\",\"#20124d\",\"#4c1130\"]],";
   ui += "change: function(color) { send('hex?' + color.toHex() + '/'); } ";
   ui += " });"; // end of spectrum
