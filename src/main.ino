@@ -37,24 +37,27 @@ void setup() {
   // start the EEprom
   EEPROM.begin(256);
   Serial.begin(115200);
-  //setSSID_PW();
-  EEPROM.get(EEset,testvar);
-  //Serial.println("Received EESET is: " + (String)testvar);
-  if (testvar -= 1){
-    // fill the ssis on eeprom with a dash
-    write_wifi_toEEPROM(EEssid, "nonessid", "nonepassword");
-    writeData(EEset,1);
-  } else {
-    wifiConn staConn = read_wifi_fromEEPROM(EEssid);
-    Serial.println("Stored connection details");
-    Serial.println(staConn.eSsid);
-    Serial.println(staConn.ePasw);
-    //use the data from EEprom
-    if (staConn.eSsid != "nonessid"){ 
-      ssid = staConn.eSsid; 
-    }
-    if (staConn.ePasw != "nonepassword") { 
-      password = staConn.ePasw; 
+  // if no ssid and password in credentials.h then check eeprom
+  if (strlen(ssid) < 3 || strlen(password) < 3){
+    EEPROM.get(EEset,testvar);
+    //if not set store dummy data
+    if (testvar -= 1){
+      // fill the ssid on eeprom with a fixed nones
+      write_wifi_toEEPROM(EEssid, "nonessid", "nonepassword");
+      writeData(EEset,1);
+    } else {
+      //if was set then read the data 
+      wifiConn staConn = read_wifi_fromEEPROM(EEssid);
+      //Serial.println("Stored connection details");
+      //Serial.println(staConn.eSsid);
+      //Serial.println(staConn.ePasw);
+      //use the data from EEprom if it is not nones
+      if (staConn.eSsid != "nonessid"){ 
+        ssid = staConn.eSsid; 
+      }
+      if (staConn.ePasw != "nonepassword") { 
+        password = staConn.ePasw; 
+      }
     }
   }
   // Start WiFi depending on mode
@@ -86,25 +89,20 @@ void setup() {
   if (setupMode==true){
     scanNetworks();
   } else {
-     setupOTA();
+    setupOTA();
   }
   initToSerial();
   server.begin();
   timeClient.begin();
   initLEDS();
-  //EEPROM.get(EEssid,ssid);
-  //EEPROM.get(EEwpapw,password);
-  //Serial.print("read: "+(String)ssid+" "+(String)password);
+  
 }
 
 void loop() {
   startColours();
   if (setupMode == false){
      ArduinoOTA.handle();
-  } else {
-    
-  }
-  
+  } 
   resetTimer();   // once a day restart ESP
     
   WiFiClient espClient = server.available();        // listen for user by browser
@@ -118,10 +116,10 @@ void loop() {
         respMsg = "Ready";     // HTTP Respons Message
         // Read the first line of of the request
         String req = espClient.readStringUntil('\r');
-        if (req !=""){
-          processRequest (req,espClient);  // for commands
-          String s = "Something went wrong with web interface";
-          if (req.indexOf("/api/") == -1) {
+        
+        processRequest (req,espClient);  // for commands
+        String s = "Something went wrong with web interface";
+        if (req.indexOf("/api/") == -1) {
             if (setupMode == false){
                 s = interfaceUser();
             } else {
@@ -129,7 +127,7 @@ void loop() {
             }
             // send reply
             espClient.print(s);
-          } else if (req.indexOf("/api/") != -1){
+        } else if (req.indexOf("/api/") != -1){
             //  If used from api just a line reply
             if (setupMode == false){
               datVal =  respMsg.c_str();
@@ -145,11 +143,11 @@ void loop() {
             } else {
               espClient.print(respMsg);
             }
-          } else {
+        } else {
             // a request gives just a reply
             espClient.print(s);
-          } 
-        }
+        } 
+        
         delay(1);
         break;
       }  // espClient.available
@@ -475,10 +473,6 @@ void resetTimer(){
       ESP.restart();
   }  
 }
-void setSSID_PW(){
-  // read ssid and password from eeprom
-  
-}
 void scanNetworks(){
   Serial.println("scan start");
     // WiFi.scanNetworks will return the number of networks found
@@ -682,7 +676,6 @@ String urldecode(String str){
     
    return encodedString;
 }
-
 String urlencode(String str){
     String encodedString="";
     char c;
