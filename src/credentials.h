@@ -1,5 +1,3 @@
-
-
 // here are the credentials you need in your sketch
 
 //  ip_MQTT could be an IP address or a server name like broker.example.com
@@ -7,15 +5,18 @@
 //  OTA makes it possible to update over the air without pressing a button
 
 
-//                  WIFI           (leave empty if you want to set by browser)
+//                  WIFI       (leave empty if you want to set by browser see Access point)
 
-#define my_SSID "***YOUR_WIFI_SSID"      // ssid of your accesspoint
-#define my_PASSWORD "***YOUR_WIFI_PASSWORD"  // password of access point
+#define my_SSID "***YOUR_WIFI_SSID"          // ssid of your wifi station/router
+#define my_PASSWORD "***YOUR_WIFI_PASSWORD"  // password for your wifi station/router
 
-//                  ACCESS POINT
 
-#define  ap_SSID  "Esp32AP_RGB"  // not shown or unsecured when secret is too short
-#define  ap_SECRET "hellolol"    // minimum length of secret is 8 characters
+//                  ACCESS POINT   (If you like another name you can change)
+// access point is used if WiFi doesn't connect an AP will start (192.168.4.1)  
+// point thereand you can choose SSID and enter password
+
+#define  ap_SSID  "Esp32_SetUp"  // not shown or unsecured when secret is too short
+#define  ap_SECRET "hello2ESP"   // minimum length of secret is 8 characters
 
 //                  MQTT
 
@@ -27,5 +28,3 @@
 //                   OTA
 
 #define my_OTA_PW "***YOUR_OTA_PASSWORD"  // password for OTA updates
-
-
