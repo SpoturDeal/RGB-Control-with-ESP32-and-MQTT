@@ -1,30 +1,34 @@
 #include <Arduino.h>
-#include <cstdlib>
-#include <iostream>
-#include <string>
-#include <cstring>
+#include <ArduinoJson.h>
+#include <ArduinoOTA.h>
 #include "credentials.h"
+#include <cstring>
+#include <cstdlib>
+#include <EEPROM.h>
+#include <ESPmDNS.h>
+#include <iostream>
+#include <NTPClient.h>
+#include <PubSubClient.h>
+#include <string>
 #include "vars.h"
 #include <WiFi.h>
-#include <ESPmDNS.h>
-#include <NTPClient.h>
 #include <WiFiUdp.h>
-#include <ArduinoOTA.h>
-#include <EEPROM.h>
-#include <ArduinoJson.h>
 
 // Choose the NTP server for your timezone
 #define NTP_OFFSET 2 * 60 * 60 // In seconds
 #define NTP_INTERVAL 60 * 1000 // In miliseconds
 #define NTP_ADDRESS "ntp2.xs4all.nl"
-
+// Time client
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, NTP_ADDRESS, NTP_OFFSET, NTP_INTERVAL);
+//WiFi server
 WiFiServer server(80);
-
+WiFiClient espClient;
+// MQTT Client
+PubSubClient mqttClient(espClient);
+// Buffers for JSON
 const size_t bufferSize = JSON_ARRAY_SIZE(2) + JSON_OBJECT_SIZE(3);
 DynamicJsonBuffer jsonBuffer(bufferSize);
-
 //declare functions for C/C++
 void setRGBColor(uint32_t R, uint32_t G, uint32_t B, uint32_t W, bool toEEprom);
 void setOneColour(uint32_t V, String Clr );
@@ -33,14 +37,13 @@ void writeData(uint8_t addr, uint32_t datInt);
 
 
 void setup() {
-  
   // start the EEprom
   EEPROM.begin(256);
   Serial.begin(115200);
   // if no ssid and password in credentials.h then check eeprom
   if (strlen(ssid) < 3 || strlen(password) < 3){
     EEPROM.get(EEset,testvar);
-    //if not set store dummy data
+    //if not set store dummy data in EEprom
     if (testvar -= 1){
       // fill the ssid on eeprom with a fixed nones
       write_wifi_toEEPROM(EEssid, "nonessid", "nonepassword");
@@ -48,9 +51,6 @@ void setup() {
     } else {
       //if was set then read the data 
       wifiConn staConn = read_wifi_fromEEPROM(EEssid);
-      //Serial.println("Stored connection details");
-      //Serial.println(staConn.eSsid);
-      //Serial.println(staConn.ePasw);
       //use the data from EEprom if it is not nones
       if (staConn.eSsid != "nonessid"){ 
         ssid = staConn.eSsid; 
@@ -63,11 +63,6 @@ void setup() {
   // Start WiFi depending on mode
   // Start Access point if ssid is not set
   // for setting up ssid and password
-  Serial.print("test: ");
-  Serial.print( ssid ); 
-  Serial.print("*");
-  Serial.print( password );
-  Serial.println("-");
   if (strlen(ssid) < 3 || strlen(password) < 3){
      WiFi.mode(WIFI_AP);
      WiFi.softAP(assid,asecret,7,0,5);
@@ -84,29 +79,49 @@ void setup() {
       setupMode = true;
       break;
     }
-   
   } 
+  // in setMode we need different important parts
   if (setupMode==true){
     scanNetworks();
   } else {
     setupOTA();
-  }
+    // Setup and start MQTT
+    mqttClient.setServer(ip_MQTT, port_MQTT);
+    while (!mqttClient.connected()) {
+      Serial.println("Connecting to MQTT ...");
+      if (mqttClient.connect("ESP32Client", my_MQTT_USER, my_MQTT_PW )) {
+        Serial.println("Connected to MQTT");
+        mqttClient.setCallback(callback);
+        mqttClient.subscribe("test/esp");
+        mqttClient.publish("esp/test", "ESP32 RGB has just been started.");
+      } else {
+        Serial.print("Failed to connect to MQTT with state ");
+        Serial.print(mqttClient.state());
+        delay(2000);
+      }
+    } // end mqttclientconnected
+  } // end setupMode
+  // write some startup info
   initToSerial();
+  // start the server
   server.begin();
+  // start the time client
   timeClient.begin();
+  // setup pins for LEDS
   initLEDS();
-  
 }
 
 void loop() {
-  startColours();
+  // only needed when running not for setup
   if (setupMode == false){
-     ArduinoOTA.handle();
-  } 
-  resetTimer();   // once a day restart ESP
-    
-  WiFiClient espClient = server.available();        // listen for user by browser
-   
+      // LEDS to last setting
+      startColours();
+      ArduinoOTA.handle();
+      mqttClient.loop();
+  }
+  // once a day restart ESP
+  resetTimer();   
+  espClient = server.available();        // listen for user by browser
   if (espClient) {                             
     
     while (espClient.connected()) {            
@@ -155,7 +170,20 @@ void loop() {
   } // espClient
   delay(1000);
 }
-
+void callback(char* topic, byte* payload, unsigned int length) {
+ 
+  Serial.print("Message arrived in topic: ");
+  Serial.println(topic);
+ 
+  Serial.print("Message:");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+ 
+  Serial.println();
+  Serial.println("-----------------------");
+ 
+}
 String getValue(String req) {
 
   int val_start = req.indexOf('?');
@@ -281,18 +309,20 @@ void initLEDS(){
   ledcAttachPin(LED_PIN_W, LEDC_CHANNEL_3_W);
 }
 void initToSerial(){
-  
-  Serial.println();
+   Serial.println();
   Serial.println("Serial started");
-  Serial.println("AP started");
-  Serial.print("IP address:\t");
-  Serial.println(WiFi.softAPIP());
-  // Show WiFi is connected
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.print("IP address:\t");
-  Serial.println(WiFi.localIP());
-  Serial.println("Enter this address in your Internet browser.");
+  if (setupMode == true){
+    Serial.println("AP started");
+    Serial.print("IP address:\t");
+    Serial.println(WiFi.softAPIP());
+  } else {
+    // Show WiFi is connected
+    Serial.println("");
+    Serial.println("WiFi connected");
+    Serial.print("IP address:\t");
+    Serial.println(WiFi.localIP());
+    Serial.println("Enter this address in your Internet browser.");
+  }
 }
 void ledcAnalogWrite(uint8_t channel, uint32_t value, uint32_t valueMax = 255) {
   // Arduino like analogWrite
@@ -702,7 +732,7 @@ String urlencode(String str){
         encodedString+='%';
         encodedString+=code0;
         encodedString+=code1;
-        //encodedString+=code2;
+        encodedString+=code2;
       }
       yield();
     }
@@ -750,6 +780,6 @@ void write_wifi_toEEPROM(uint8_t startAddr, String strSSID, String strPW){
 wifiConn read_wifi_fromEEPROM(uint8_t startAddr){
   wifiConn readEE;        //Variable to store custom object read from EEPROM.
   EEPROM.get(startAddr, readEE);
-  Serial.println("Read custom object from EEPROM: ");
+  Serial.println("Read wifi connection object from EEPROM: ");
   return readEE;    
 }
