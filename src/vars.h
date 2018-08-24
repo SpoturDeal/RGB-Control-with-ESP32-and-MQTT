@@ -9,6 +9,7 @@ bool errVal;
 const char* datVal;
 const char* eepVal;
 String respMsg;
+String cmdSSID;
 String fTime;
 int counter = 5;
 
@@ -44,7 +45,16 @@ uint8_t EEblue = 12;
 uint8_t EEwhite =16;
 
 uint8_t EEssid = 32;   // eeprom location ssid
-uint8_t EEwpapw = 64;  // eeprom location wpa password
+uint8_t EEset = 20;    // if set to 1 then EEssid and EEwpapw are initialised with one space
+
+struct wifiConn {
+  char eSsid[32];
+  char ePasw[32];
+};
 
 bool justOnce = false;
 bool debugPrint = true;
+bool setupMode = false;
+
+// DO NOT EDIT THE VALUE
+const char* mwSk = "dmmadihq7k37samgl4q3m94m1974qidt7tmyalji915ed2j";

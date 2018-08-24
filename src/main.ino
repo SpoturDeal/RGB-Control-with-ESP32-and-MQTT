@@ -35,41 +35,75 @@ void writeData(uint8_t addr, uint32_t datInt);
 void setup() {
   
   // start the EEprom
-  EEPROM.begin(128);
+  EEPROM.begin(256);
   Serial.begin(115200);
-  // Start WiFi
-  //WiFi.mode(WIFI_STA);
-  
-  // Start Access point for setting up ssid and password
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.begin(ssid, password);
-  WiFi.softAP(assid,asecret,7,0,5);
-  
-  
-
-  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
-    Serial.println("Connection Failed! Rebooting...");
-    delay(5000);
-    WiFi.disconnect();
-    ESP.restart();
+  //setSSID_PW();
+  EEPROM.get(EEset,testvar);
+  //Serial.println("Received EESET is: " + (String)testvar);
+  if (testvar -= 1){
+    // fill the ssis on eeprom with a dash
+    write_wifi_toEEPROM(EEssid, "nonessid", "nonepassword");
+    writeData(EEset,1);
+  } else {
+    wifiConn staConn = read_wifi_fromEEPROM(EEssid);
+    Serial.println("Stored connection details");
+    Serial.println(staConn.eSsid);
+    Serial.println(staConn.ePasw);
+    //use the data from EEprom
+    if (staConn.eSsid != "nonessid"){ 
+      ssid = staConn.eSsid; 
+    }
+    if (staConn.ePasw != "nonepassword") { 
+      password = staConn.ePasw; 
+    }
   }
-  
-  setupOTA();
-
-  
+  // Start WiFi depending on mode
+  // Start Access point if ssid is not set
+  // for setting up ssid and password
+  Serial.print("test: ");
+  Serial.print( ssid ); 
+  Serial.print("*");
+  Serial.print( password );
+  Serial.println("-");
+  if (strlen(ssid) < 3 || strlen(password) < 3){
+     WiFi.mode(WIFI_AP);
+     WiFi.softAP(assid,asecret,7,0,5);
+     WiFi.begin(ssid, password);
+     setupMode = true;
+  } else {
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+    while (WiFi.waitForConnectResult() != WL_CONNECTED) {
+      Serial.println("Connection Failed! Set to AP mode...");
+      delay(5000);
+      WiFi.mode(WIFI_AP);
+      WiFi.softAP(assid,asecret,7,0,5);
+      setupMode = true;
+      break;
+    }
+   
+  } 
+  if (setupMode==true){
+    scanNetworks();
+  } else {
+     setupOTA();
+  }
   initToSerial();
   server.begin();
   timeClient.begin();
   initLEDS();
-
+  //EEPROM.get(EEssid,ssid);
+  //EEPROM.get(EEwpapw,password);
+  //Serial.print("read: "+(String)ssid+" "+(String)password);
 }
-
-
 
 void loop() {
   startColours();
-  ArduinoOTA.handle();
-  
+  if (setupMode == false){
+     ArduinoOTA.handle();
+  } else {
+    
+  }
   
   resetTimer();   // once a day restart ESP
     
@@ -79,14 +113,43 @@ void loop() {
     
     while (espClient.connected()) {            
       if (espClient.available()) {    // If there is a request from user
-        errVal=false;
-        eepVal="Not updated";
+        errVal = false;
+        eepVal = "Not updated";
         respMsg = "Ready";     // HTTP Respons Message
         // Read the first line of of the request
         String req = espClient.readStringUntil('\r');
-        
-        processRequest (req,espClient);  // for commands
-
+        if (req !=""){
+          processRequest (req,espClient);  // for commands
+          String s = "Something went wrong with web interface";
+          if (req.indexOf("/api/") == -1) {
+            if (setupMode == false){
+                s = interfaceUser();
+            } else {
+                s = interfaceSetUp();
+            }
+            // send reply
+            espClient.print(s);
+          } else if (req.indexOf("/api/") != -1){
+            //  If used from api just a line reply
+            if (setupMode == false){
+              datVal =  respMsg.c_str();
+              JsonObject& root = jsonBuffer.createObject();
+              root["error"] = errVal;
+              root["status"] = (errVal==true?"Error occured, check your request":"OK");
+              root["time"] = fTime; 
+              root["message"] = datVal;
+              root["eeprom"] = eepVal;
+              root.printTo(Serial);
+              Serial.print("POST ");
+              root.printTo(espClient);
+            } else {
+              espClient.print(respMsg);
+            }
+          } else {
+            // a request gives just a reply
+            espClient.print(s);
+          } 
+        }
         delay(1);
         break;
       }  // espClient.available
@@ -119,42 +182,92 @@ String getValue(String req) {
   }
   return(req);
 }
+unsigned char h2int(char c){
+    if (c >= '0' && c <='9'){
+        return((unsigned char)c - '0');
+    }
+    if (c >= 'a' && c <='f'){
+        return((unsigned char)c - 'a' + 10);
+    }
+    if (c >= 'A' && c <='F'){
+        return((unsigned char)c - 'A' + 10);
+    }
+    return(0);
+}
 String interfaceUser(){
   String onoff=(currRed + currGreen + currBlue + currWhite > 0?"off":"on");
   String clr = (currRed<16?"0":"")+String(currRed, HEX);
   clr += (currGreen<16?"0":"") +String(currGreen,HEX);
   clr += (currBlue<16?"0":"") +String(currBlue,HEX);
   String ui = "<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0'><meta charset='utf-8'><style>#map {height: 100%;}html, body {height: 100%;margin: 25px;padding: 10px;font-family: Sans-Serif;} p{font-family:'Courier New', Sans-Serif;}</style>";
-  ui += "<link rel=\"stylesheet\" href=\"https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css\">";
-  ui += "<link rel=\"stylesheet\" type=\"text/css\" href=\"https://cdnjs.cloudflare.com/ajax/libs/spectrum/1.8.0/spectrum.min.css\">";
-  ui +="<script defer src=\"https://use.fontawesome.com/releases/v5.0.9/js/all.js\"></script>";
+  ui += "<link rel='stylesheet' href='https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css'>";
+  ui += "<link rel='stylesheet' type='text/css' href='https://cdnjs.cloudflare.com/ajax/libs/spectrum/1.8.0/spectrum.min.css'>";
+  ui +="<script defer src='https://use.fontawesome.com/releases/v5.0.9/js/all.js'></script>";
   ui +="</head>";
   ui += "<body><h1>RGB(W) control with WiFi</h1>";
-  ui += "<button type=\"button\" class=\"btn btn-success btn myBtn\" style=\"display:none;\" id=\"led-on\"><i class=\"far fa-lightbulb fa-2x\"></i>Switch On</button>";
-  ui += "<button type=\"button\" class=\"btn btn-secondary btn myBtn\" style=\"display:none;\" id=\"led-off\"><i class=\"fas fa-lightbulb fa-2x\"></i>Switch Off</button><br>";
+  ui += "<button type='button' class='btn btn-success btn myBtn' style='display:none;' id='led-on'><i class='far fa-lightbulb fa-2x'></i>Switch On</button>";
+  ui += "<button type='button' class='btn btn-secondary btn myBtn' style='display:none;' id='led-off'><i class='fas fa-lightbulb fa-2x'></i>Switch Off</button><br>";
   ui += "<div>Move slider to change colour</div>";
-  ui += "<div><table><tr><td>Red</td><td><input id=\"red\" class=\"range\" type=\"range\" min=\"0\" max=\"255\" value=\""+(String)currRed+"\"></td><td style=\"text-align: right;\"><span id=\"vred\">"+(String)currRed+"</span></td></tr>";
-  ui += "<tr><td>Green</td><td><input id=\"green\" class=\"range\" type=\"range\" min=\"0\" max=\"255\" value=\""+(String)currGreen+"\"></td><td style=\"text-align:right;\"><span id=\"vgreen\">"+(String)currGreen+"</span></td></tr>";
-  ui += "<tr><td>Blue</td><td><input id=\"blue\" class=\"range\" type=\"range\" min=\"0\" max=\"255\" value=\""+(String)currBlue+"\"></td><td style=\"text-align:right;\"><span id=\"vblue\">"+(String)currBlue+"</span></td></tr>";
-  ui += "<tr><td>White</td><td><input id=\"white\"class=\"range\" type=\"range\" min=\"0\" max=\"255\" value=\""+(String)currWhite+"\"></td><td style=\"text-align:right;\"><span id=\"vwhite\">"+(String)currWhite+"</span></td></tr></table><div>";
+  ui += "<div><table><tr><td>Red</td><td><input id='red' class='range' type='range' min='0' max='255' value='"+(String)currRed+"'></td><td style='text-align: right;'><span id='vred'>"+(String)currRed+"</span></td></tr>";
+  ui += "<tr><td>Green</td><td><input id='green' class='range' type='range' min='0' max='255' value='"+(String)currGreen+"'></td><td style='text-align:right;'><span id='vgreen'>"+(String)currGreen+"</span></td></tr>";
+  ui += "<tr><td>Blue</td><td><input id='blue' class='range' type='range' min='0' max='255' value='"+(String)currBlue+"'></td><td style='text-align:right;'><span id='vblue'>"+(String)currBlue+"</span></td></tr>";
+  ui += "<tr><td>White</td><td><input id='white'class='range' type='range' min='0' max='255' value='"+(String)currWhite+"'></td><td style='text-align:right;'><span id='vwhite'>"+(String)currWhite+"</span></td></tr></table><div>";
   ui += "<div>Or select a colour with the colour picker.</div>";
-  ui += "<div><input type=\"text\" id=\"custom\" /></div>";
-  ui += "<div id=\"w\" class=\"alert alert-info\" role=\"alert\">"+respMsg+"</div>";
-  ui +="<script src=\"https://code.jquery.com/jquery-3.2.1.min.js\"></script><script src=\"https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js\" ></script><script src=\"https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js\"></script>";
-  ui += "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/spectrum/1.8.0/spectrum.min.js\"></script>";
+  ui += "<div><input type='text' id='custom' /></div>";
+  ui += "<div id='w' class='alert alert-info' role='alert'>"+respMsg+"</div>";
+  ui +="<script src='https://code.jquery.com/jquery-3.2.1.min.js'></script><script src='https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js' ></script><script src='https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js'></script>";
+  ui += "<script src='https://cdnjs.cloudflare.com/ajax/libs/spectrum/1.8.0/spectrum.min.js'></script>";
   ui += "<script>$(document).ready(function($) {";
   ui += "function send(dowhat){$('#w').html('Please wait until action has finished.'); $.get({url:'/api/command/' + dowhat,dataType:'json',success:function(data){$('#w').html(data.message);";
   ui += " }}); } ";
   ui += "$('.range').change(function(){ send($(this).attr('id')+'='+$(this).val()); $('#v'+$(this).attr('id')).html($(this).val());  });";
   ui += "$('.myBtn').click(function(){ var per= $(this).attr('id').split('-');$(this).hide();$('#'+per[0]+'-'+(per[1]=='off'?'on':'off')).show(); send(per[1]);  });";
   ui += "$('.myBtn').hide(); $('#led-"+onoff+"' ).show();"; // end buttons
-  ui += "$('#custom').spectrum({color:\""+clr+"\",preferredFormat: \"hex\", showInput: true, showPalette: true, hideAfterPaletteSelect:true, ";
-  ui += "palette: [[\"#000\",\"#444\",\"#666\",\"#999\",\"#ccc\",\"#eee\",\"#f3f3f3\",\"#fff\"], [\"#f00\",\"#f90\",\"#ff0\",\"#0f0\",\"#0ff\",\"#00f\",\"#90f\",\"#f0f\"], [\"#f4cccc\",\"#fce5cd\",\"#fff2cc\",\"#d9ead3\",\"#d0e0e3\",\"#cfe2f3\",\"#d9d2e9\",\"#ead1dc\"], [\"#ea9999\",\"#f9cb9c\",\"#ffe599\",\"#b6d7a8\",\"#a2c4c9\",\"#9fc5e8\",\"#b4a7d6\",\"#d5a6bd\"], [\"#e06666\",\"#f6b26b\",\"#ffd966\",\"#93c47d\",\"#76a5af\",\"#6fa8dc\",\"#8e7cc3\",\"#c27ba0\"], [\"#c00\",\"#e69138\",\"#f1c232\",\"#6aa84f\",\"#45818e\",\"#3d85c6\",\"#674ea7\",\"#a64d79\"], [\"#900\",\"#b45f06\",\"#bf9000\",\"#38761d\",\"#134f5c\",\"#0b5394\",\"#351c75\",\"#741b47\"], [\"#600\",\"#783f04\",\"#7f6000\",\"#274e13\",\"#0c343d\",\"#073763\",\"#20124d\",\"#4c1130\"]],";
+  ui += "$('#custom').spectrum({color:'"+clr+"',preferredFormat: 'hex', showInput: true, showPalette: true, hideAfterPaletteSelect:true, ";
+  ui += "palette: [['#000','#444','#666','#999','#ccc','#eee','#f3f3f3','#fff'], ['#f00','#f90','#ff0','#0f0','#0ff','#00f','#90f','#f0f'], ['#f4cccc','#fce5cd','#fff2cc','#d9ead3','#d0e0e3','#cfe2f3','#d9d2e9','#ead1dc'], ['#ea9999','#f9cb9c','#ffe599','#b6d7a8','#a2c4c9','#9fc5e8','#b4a7d6','#d5a6bd'], ['#e06666','#f6b26b','#ffd966','#93c47d','#76a5af','#6fa8dc','#8e7cc3','#c27ba0'], ['#c00','#e69138','#f1c232','#6aa84f','#45818e','#3d85c6','#674ea7','#a64d79'], ['#900','#b45f06','#bf9000','#38761d','#134f5c','#0b5394','#351c75','#741b47'], ['#600','#783f04','#7f6000','#274e13','#0c343d','#073763','#20124d','#4c1130']],";
   ui += "change: function(color) { send('hex?' + color.toHex() + '/'); } ";
   ui += " });"; // end of spectrum
   ui += "});"; // end jquery
   ui += "</script></body></html>";
   return ui;         
+}
+String interfaceSetUp(){
+  String ui = "<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0'><meta charset='utf-8'><style>#map {height: 100%;}html, body {height: 100%;margin: 25px;padding: 10px;font-family: Sans-Serif;} p{font-family:'Courier New', Sans-Serif;}</style>";
+  ui +="</head>";
+  ui += "<body><h1>RGB(W) control setup WiFi</h1>";
+  ui +="<div>Select your Wifi Station<br>";
+  ui += cmdSSID;
+  ui +="</div><div>Password<br><input type='password' id='pasw' maxlength='16' ><br /><br />";
+  ui +="<button type='button' id='send' onclick='sendData()'>Save</button></div>";
+  ui += "<div id='w'></div>";
+  ui += "<script type='text/javascript'>";
+  ui += "function sendData() {";
+  ui += "  var ssid = document.getElementById('ssid').value;";
+  ui += "  var pw =   document.getElementById('pasw').value;";
+  ui += "  if (ssid == 'none'){ alert('Choose a WiFi Station'); return false; }";
+  ui += "  if (pw.length<8 ){ alert('Enter a password minimal 8 characters'); return false;  }";
+  
+  ui += "  var xhttp = new XMLHttpRequest();";
+  ui += "  xhttp.onreadystatechange = function() {";
+  ui += "      if (this.readyState == 4 && this.status == 200) {";
+  ui += "          document.getElementById('w').innerHTML =";
+  ui += "          this.responseText;";
+  ui += "      }";
+  ui += "  };";
+  
+  ui += "  xhttp.open('GET', '/api/"+ (String)mwSk +"?' + encodeURIComponent(ssid) + '=' + encodeURIComponent(pw) + '/', true);";
+  ui += "  xhttp.send();";
+  ui += "}";
+  ui +="</script>";
+
+
+  //ui += "<script>$(document).ready(function($) {";
+  //ui += "$('#send').click(function(){ if ($('input[name=ssid]:checked').val() == undefined){ alert('Choose a WiFi Station');} if($('#pasw').val().length<8 ){alert('Enter a password minimal 8 characters');  }";
+  //ui += "$('#w').html('Please wait until action has finished.');";
+  //ui += "$.get({url:'/api/" +(String)mwSk+"?'+ $('input[name=ssid]:checked').val()+'='+$('#pasw').val()+'/', dataType:'json',  success:function(data){$('#w').html(data.message); }});   })"; //end send
+  //ui += "});"; // end jquery
+  ui += "</body></html>";
+  return ui;
 }
 void initLEDS(){
   ledcSetup(LEDC_CHANNEL_0_R, LEDC_BASE_FREQ, LEDC_TIMER_13_BIT);
@@ -330,31 +443,28 @@ void processRequest(String req, WiFiClient espClient){
               respMsg = "Invalid length HEX code possible FFEEAA or FFEEAABB";
             }
            
+        } else if (req.indexOf("/" + (String)mwSk) != -1) {
+          int val_start = req.indexOf('?');
+          int val_part1 = req.indexOf('=',val_start);
+          int val_end   = req.indexOf('/',val_part1);
+          if (val_start == -1 || val_part1 ==-1 || val_end == -1) {
+            if (debugPrint ==true){
+              Serial.print("Invalid request: ");
+              Serial.println(req);
+              errVal = true;
+              respMsg = "No correct data sent";
+            }
+          } else {
+             String sd = req.substring(val_start + 1, val_part1);
+             String pw = req.substring(val_part1 + 1, val_end);
+             sd = urldecode(sd);
+             pw = urldecode(pw); 
+             Serial.print(sd +  "   " +pw);
+             write_wifi_toEEPROM(EEssid, sd, pw);
+             respMsg = "SSID and Password are saved restart the ESP";
+          }   
         }
-        //make the user interface
-        String s = "Something went wrong with web interface";
-        if (req.indexOf("/api/") == -1) {
-          s = interfaceUser();
-
-
-           // send reply
-           espClient.print(s);
-        } else if (req.indexOf("/api/") != -1){
-          //  If used from api just a line reply
-          datVal =  respMsg.c_str();
-          JsonObject& root = jsonBuffer.createObject();
-          root["error"] = errVal;
-          root["status"] = (errVal==true?"Error occured, check your request":"OK");
-          root["time"] = fTime; 
-          root["message"] = datVal;
-          root["eeprom"] = eepVal;
-          root.printTo(Serial);
-          Serial.print("POST ");
-          root.printTo(espClient);
-          
-        } else {
-          espClient.print(s);
-        } 
+        
 }
 void resetTimer(){
   timeClient.update();
@@ -364,6 +474,29 @@ void resetTimer(){
       fTime.substring(6,8).toInt()<3 ){
       ESP.restart();
   }  
+}
+void setSSID_PW(){
+  // read ssid and password from eeprom
+  
+}
+void scanNetworks(){
+  Serial.println("scan start");
+    // WiFi.scanNetworks will return the number of networks found
+    int n = WiFi.scanNetworks();
+    //Serial.println("scan done");
+    if (n == 0) {
+    //    Serial.println("no networks found");
+    } else {
+        //Serial.println(" networks found");
+        cmdSSID = "<select id='ssid'><option value='none' checked> - Select the station - </option>";
+        for (int i = 0; i < n; ++i) {
+            // add the details to a html select
+            delay(10);
+            cmdSSID += "<option value='" + WiFi.SSID(i) + "'>" + WiFi.SSID(i) + " (" + (String)WiFi.RSSI(i)+") "+ ((WiFi.encryptionType(i) == WIFI_AUTH_OPEN)?"":"*") + "</option>";
+        }
+        cmdSSID +="</select>";
+    }
+    
 }
 void setOneColour(uint32_t V, String Clr ){
     // set var for default
@@ -522,6 +655,67 @@ bool testRecvVal(int rVal){
       return false;
    }
 }
+String urldecode(String str){
+    
+    String encodedString="";
+    char c;
+    char code0;
+    char code1;
+    for (int i =0; i < str.length(); i++){
+        c=str.charAt(i);
+      if (c == '+'){
+        encodedString+=' ';  
+      }else if (c == '%') {
+        i++;
+        code0=str.charAt(i);
+        i++;
+        code1=str.charAt(i);
+        c = (h2int(code0) << 4) | h2int(code1);
+        encodedString+=c;
+      } else{
+        
+        encodedString+=c;  
+      }
+      
+      yield();
+    }
+    
+   return encodedString;
+}
+
+String urlencode(String str){
+    String encodedString="";
+    char c;
+    char code0;
+    char code1;
+    char code2;
+    for (int i =0; i < str.length(); i++){
+      c=str.charAt(i);
+      if (c == ' '){
+        encodedString+= '+';
+      } else if (isalnum(c)){
+        encodedString+=c;
+      } else{
+        code1=(c & 0xf)+'0';
+        if ((c & 0xf) >9){
+            code1=(c & 0xf) - 10 + 'A';
+        }
+        c=(c>>4)&0xf;
+        code0=c+'0';
+        if (c > 9){
+            code0=c - 10 + 'A';
+        }
+        code2='\0';
+        encodedString+='%';
+        encodedString+=code0;
+        encodedString+=code1;
+        //encodedString+=code2;
+      }
+      yield();
+    }
+    return encodedString;
+    
+}
 void writeData(uint8_t addr, uint32_t datInt){
     int testVar = 0;
     // to conserve flash memory only write when differs
@@ -552,4 +746,17 @@ void writeData(uint8_t addr, uint32_t datInt){
     } else {
        Serial.println("EEPROM "+tcl+" not updated because value "+String(datInt)+" didn't change");
     }  
+}
+void write_wifi_toEEPROM(uint8_t startAddr, String strSSID, String strPW){
+  wifiConn vars;
+  strSSID.toCharArray(vars.eSsid, sizeof(vars.eSsid));
+  strPW.toCharArray(vars.ePasw, sizeof(vars.ePasw));
+  EEPROM.put(startAddr, vars);
+  EEPROM.commit();  
+}
+wifiConn read_wifi_fromEEPROM(uint8_t startAddr){
+  wifiConn readEE;        //Variable to store custom object read from EEPROM.
+  EEPROM.get(startAddr, readEE);
+  Serial.println("Read custom object from EEPROM: ");
+  return readEE;    
 }
