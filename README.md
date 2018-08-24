@@ -1,5 +1,5 @@
 # RGB(w)-Control-with-ESP32-and-MQTT
-An RGB(W) control on ESP32 with webinterface and MQTT
+An RGB(W) control on ESP32 with webinterface and MQTT status replies.
 
 This RGB control can be used with different domotica systems.
 The last set colours is stored in EEprom after a start up, it will return to last colour
