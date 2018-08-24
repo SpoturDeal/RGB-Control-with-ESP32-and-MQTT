@@ -22,7 +22,7 @@ Coming soon
 
 |Date|Description|
 |--|--|
-|24th August 2018|Added support for setup by direct AP connection to ESP32|
+|24th August 2018|Added support for setup by direct AP connection to ESP32 and connect to MQTT|
 |21th August 2018|Added Range sliders in user interface|
 
 ## Usage in browser
