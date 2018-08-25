@@ -8,7 +8,10 @@ With the few parts you have full IoT control over your RGB devices for less then
 
 Once you have uploaded the sketch just find "Esp32_SetUp" in your networks and connect. Then open your browser and enter 192.168.4.1 here you select the Wireless Network you want to use and the password. After clicking send and the confirmation the ESP will restart.
 
-On a mobile device you can use ***fing*** on <a href="https://play.google.com/store/apps/details?id=com.overlook.android.fing&hl=nl">Google Play</a> or <a href="https://itunes.apple.com/nl/app/fing-netwerk-scanner/id430921107?mt=8">Apple iTunes</a> to find the IP address given to the ESP32.
+On a mobile device you can use **fing** on <a href="https://play.google.com/store/apps/details?id=com.overlook.android.fing&hl=nl">Google Play</a> or <a href="https://itunes.apple.com/nl/app/fing-netwerk-scanner/id430921107?mt=8">Apple iTunes</a> to find the IP address given to the ESP32.
+
+## Arduino Project
+It is an Arduino project however I choose to build in on visual studio code with the PlatformIO extension. 
 
 ## Parts
 
