@@ -10,8 +10,10 @@ const char* datVal;
 const char* eepVal;
 String respMsg;
 String cmdSSID;
-String fTime;
+String formTime;
+String ipStr;
 int counter = 5;
+String version ="0.9.3";
 
 // For LEDS
 #define LEDC_CHANNEL_0_R  0

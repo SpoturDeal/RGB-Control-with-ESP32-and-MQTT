@@ -81,9 +81,8 @@ void setup() {
     }
   } 
   // in setMode we need different important parts
-  if (setupMode==true){
-    scanNetworks();
-  } else {
+  scanNetworks();
+  if (setupMode==false){
     setupOTA();
     // Setup and start MQTT
     mqttClient.setServer(ip_MQTT, port_MQTT);
@@ -92,8 +91,8 @@ void setup() {
       if (mqttClient.connect("ESP32Client", my_MQTT_USER, my_MQTT_PW )) {
         Serial.println("Connected to MQTT");
         mqttClient.setCallback(callback);
-        mqttClient.subscribe("test/esp");
-        mqttClient.publish("esp/test", "ESP32 RGB has just been started.");
+        mqttClient.subscribe("esp/in");
+        mqttClient.publish("esp/out", "ESP32 RGB has just been started.");
       } else {
         Serial.print("Failed to connect to MQTT with state ");
         Serial.print(mqttClient.state());
@@ -104,6 +103,8 @@ void setup() {
   // write some startup info
   initToSerial();
   // start the server
+  IPAddress myIP = WiFi.localIP();
+  ipStr = String(myIP[0])+"."+String(myIP[1])+"."+String(myIP[2])+"."+String(myIP[3]); 
   server.begin();
   // start the time client
   timeClient.begin();
@@ -117,10 +118,13 @@ void loop() {
       // LEDS to last setting
       startColours();
       ArduinoOTA.handle();
+      if (!mqttClient.connected()) {
+          //mqtt_reconnect();
+      }
       mqttClient.loop();
   }
   // once a day restart ESP
-  resetTimer();   
+  resetTimer(); 
   espClient = server.available();        // listen for user by browser
   if (espClient) {                             
     
@@ -133,6 +137,7 @@ void loop() {
         String req = espClient.readStringUntil('\r');
         
         processRequest (req,espClient);  // for commands
+        
         String s = "Something went wrong with web interface";
         if (req.indexOf("/api/") == -1) {
             if (setupMode == false){
@@ -149,12 +154,21 @@ void loop() {
               JsonObject& root = jsonBuffer.createObject();
               root["error"] = errVal;
               root["status"] = (errVal==true?"Error occured, check your request":"OK");
-              root["time"] = fTime; 
               root["message"] = datVal;
-              root["eeprom"] = eepVal;
-              root.printTo(Serial);
-              Serial.print("POST ");
+              JsonObject& colours = root.createNestedObject("colours");
+              colours["red"]=currRed;
+              colours["green"]=currGreen;
+              colours["blue"]=currBlue;
+              colours["white"]=currWhite;
+              JsonObject& updated = root.createNestedObject("updated");
+              updated["time"] = formTime;
+              updated["eeprom"] = eepVal;
+              updated["version"] = version;
               root.printTo(espClient);
+              // must stop otherwise MQTT is not sent
+              espClient.stop();
+              delay(500); 
+              sendWithMQTT();
             } else {
               espClient.print(respMsg);
             }
@@ -162,7 +176,7 @@ void loop() {
             // a request gives just a reply
             espClient.print(s);
         } 
-        
+        espClient.stop();
         delay(1);
         break;
       }  // espClient.available
@@ -225,12 +239,13 @@ String interfaceUser(){
   String clr = (currRed<16?"0":"")+String(currRed, HEX);
   clr += (currGreen<16?"0":"") +String(currGreen,HEX);
   clr += (currBlue<16?"0":"") +String(currBlue,HEX);
-  String ui = "<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0'><meta charset='utf-8'><style>#map {height: 100%;}html, body {height: 100%;margin: 25px;padding: 10px;font-family: Sans-Serif;} p{font-family:'Courier New', Sans-Serif;}</style>";
+  String ui = "<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0'><meta charset='utf-8'>";
+  ui += "<style>#map {height: 100%;} html, body {height: 100%; margin: 25px; padding: 10px;font-family: Sans-Serif;} #container{max-width:600px;} #footer{position: absolute;bottom: 0;}</style>";
   ui += "<link rel='stylesheet' href='https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css'>";
-  ui += "<link rel='stylesheet' type='text/css' href='https://cdnjs.cloudflare.com/ajax/libs/spectrum/1.8.0/spectrum.min.css'>";
-  ui +="<script defer src='https://use.fontawesome.com/releases/v5.0.9/js/all.js'></script>";
-  ui +="</head>";
-  ui += "<body><h1>RGB(W) control with WiFi</h1>";
+  ui += "<link rel='stylesheet' href='https://cdnjs.cloudflare.com/ajax/libs/spectrum/1.8.0/spectrum.min.css'>";
+  ui += "<script defer src='https://use.fontawesome.com/releases/v5.0.9/js/all.js'></script>";
+  ui += "</head>";
+  ui += "<body><div id='container'><h1>RGB(W) control with WiFi</h1>";
   ui += "<button type='button' class='btn btn-success btn myBtn' style='display:none;' id='led-on'><i class='far fa-lightbulb fa-2x'></i>Switch On</button>";
   ui += "<button type='button' class='btn btn-secondary btn myBtn' style='display:none;' id='led-off'><i class='fas fa-lightbulb fa-2x'></i>Switch Off</button><br>";
   ui += "<div>Move slider to change colour</div>";
@@ -241,57 +256,90 @@ String interfaceUser(){
   ui += "<div>Or select a colour with the colour picker.</div>";
   ui += "<div><input type='text' id='custom' /></div>";
   ui += "<div id='w' class='alert alert-info' role='alert'>"+respMsg+"</div>";
+  ui += "<div id='footer' ><button type='button' id='wifi' class='btn btn-outline-secondary btn-sm'><i class='fas fa-wifi'></i>&nbsp;Change WiFi</button> <span>Version: " + version + "</span></div></div>";
   ui +="<script src='https://code.jquery.com/jquery-3.2.1.min.js'></script><script src='https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js' ></script><script src='https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js'></script>";
   ui += "<script src='https://cdnjs.cloudflare.com/ajax/libs/spectrum/1.8.0/spectrum.min.js'></script>";
-  ui += "<script>$(document).ready(function($) {";
-  ui += "function send(dowhat){$('#w').html('Please wait until action has finished.'); $.get({url:'/api/command/' + dowhat,dataType:'json',success:function(data){$('#w').html(data.message);";
-  ui += " }}); } ";
-  ui += "$('.range').change(function(){ send($(this).attr('id')+'='+$(this).val()); $('#v'+$(this).attr('id')).html($(this).val());  });";
-  ui += "$('.myBtn').click(function(){ var per= $(this).attr('id').split('-');$(this).hide();$('#'+per[0]+'-'+(per[1]=='off'?'on':'off')).show(); send(per[1]);  });";
-  ui += "$('.myBtn').hide(); $('#led-"+onoff+"' ).show();"; // end buttons
-  ui += "$('#custom').spectrum({color:'"+clr+"',preferredFormat: 'hex', showInput: true, showPalette: true, hideAfterPaletteSelect:true, ";
-  ui += "palette: [['#000','#444','#666','#999','#ccc','#eee','#f3f3f3','#fff'], ['#f00','#f90','#ff0','#0f0','#0ff','#00f','#90f','#f0f'], ['#f4cccc','#fce5cd','#fff2cc','#d9ead3','#d0e0e3','#cfe2f3','#d9d2e9','#ead1dc'], ['#ea9999','#f9cb9c','#ffe599','#b6d7a8','#a2c4c9','#9fc5e8','#b4a7d6','#d5a6bd'], ['#e06666','#f6b26b','#ffd966','#93c47d','#76a5af','#6fa8dc','#8e7cc3','#c27ba0'], ['#c00','#e69138','#f1c232','#6aa84f','#45818e','#3d85c6','#674ea7','#a64d79'], ['#900','#b45f06','#bf9000','#38761d','#134f5c','#0b5394','#351c75','#741b47'], ['#600','#783f04','#7f6000','#274e13','#0c343d','#073763','#20124d','#4c1130']],";
-  ui += "change: function(color) { send('hex?' + color.toHex() + '/'); } ";
-  ui += " });"; // end of spectrum
+  ui += "<script>";
+  ui += "$(document).ready(function($) {";
+  ui += "  function send(dowhat){"; 
+  ui += "    $('#w').html('Please wait until action has finished.');";
+  ui += "    $.get({url:'/api/command/' + dowhat,"; // send the request using AJAX
+  ui += "      dataType:'json',";
+  ui += "       success:function(data){";
+  ui += "          $('#w').html(data.message);";
+  ui += "          var c = data.colours;";
+  ui += "          $('#red').val(c.red);";      // update 4 sliders
+  ui += "          $('#green').val(c.green);";
+  ui += "          $('#blue').val(c.blue);";
+  ui += "          $('#white').val(c.white);";
+  ui +="           $('#vred').html(c.red);";    // udate the number behind slider
+  ui += "          $('#vgreen').html(c.green);";
+  ui += "          $('#vblue').html(c.blue);";
+  ui += "          $('#vwhite').html(c.white);";
+  ui += "          var hexString = (c.red<16?'0':'')+ c.red.toString(16);"; // make hex
+  ui += "          hexString += (c.green<16?'0':'')+ c.green.toString(16);";
+  ui += "          hexString += (c.blue<16?'0':'')+ c.blue.toString(16);";
+  ui += "          $('#custom').spectrum('set',hexString);";  // set the colour to picker
+  ui += "       }";
+  ui += "    });";
+  ui += "  } ";
+  ui += "  $('.range').change(function(){"; // react to change of colour slider
+  ui += "    send($(this).attr('id')+'='+$(this).val());"; // prepare to send
+  ui += "    $('#v'+$(this).attr('id')).html($(this).val());";
+  ui += "  });";
+  ui += "  $('.myBtn').click(function(){"; // react to click button on/off
+  ui += "    var per= $(this).attr('id').split('-');"; // id of btn
+  ui += "    $(this).hide();";
+  ui += "    $('#'+per[0]+'-'+(per[1]=='off'?'on':'off')).show();";
+  ui += "    send(per[1]);"; // prepare to send 
+  ui += "  });";
+  ui += "  $('#wifi').click(function(){";
+  ui += "      window.location.href ='http://"+ipStr+"/command/wifi';";
+  ui += "  });";
+  ui += "  $('.myBtn').hide();"; // all buttons hide 
+  ui += "  $('#led-"+onoff+"' ).show();"; // only show button that is needed
+  ui += "  $('#custom').spectrum({";  // color picker by bgrin https://bgrins.github.io/spectrum/
+  ui += "    color:'"+clr+"',";
+  ui += "    preferredFormat: 'hex',";
+  ui += "    showInput: true,";
+  ui += "    showPalette: true,";
+  ui +="     hideAfterPaletteSelect:true, ";
+  ui += "    palette: [['#000','#444','#666','#999','#ccc','#eee','#f3f3f3','#fff'], ['#f00','#f90','#ff0','#0f0','#0ff','#00f','#90f','#f0f'], ['#f4cccc','#fce5cd','#fff2cc','#d9ead3','#d0e0e3','#cfe2f3','#d9d2e9','#ead1dc'], ['#ea9999','#f9cb9c','#ffe599','#b6d7a8','#a2c4c9','#9fc5e8','#b4a7d6','#d5a6bd'], ['#e06666','#f6b26b','#ffd966','#93c47d','#76a5af','#6fa8dc','#8e7cc3','#c27ba0'], ['#c00','#e69138','#f1c232','#6aa84f','#45818e','#3d85c6','#674ea7','#a64d79'], ['#900','#b45f06','#bf9000','#38761d','#134f5c','#0b5394','#351c75','#741b47'], ['#600','#783f04','#7f6000','#274e13','#0c343d','#073763','#20124d','#4c1130']],";
+  ui += "    change: function(color) {";
+  ui += "      send('hex?' + color.toHex() + '/');";
+  ui += "    } ";
+  ui += "  });"; // end of spectrum
   ui += "});"; // end jquery
   ui += "</script></body></html>";
   return ui;         
 }
 String interfaceSetUp(){
-  String ui = "<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0'><meta charset='utf-8'><style>#map {height: 100%;}html, body {height: 100%;margin: 25px;padding: 10px;font-family: Sans-Serif;} p{font-family:'Courier New', Sans-Serif;}</style>";
-  ui +="</head>";
-  ui += "<body><h1>RGB(W) control setup WiFi</h1>";
-  ui +="<div>Select your Wifi Station<br>";
-  ui += cmdSSID;
-  ui +="</div><div>Password<br><input type='password' id='pasw' maxlength='16' ><br /><br />";
-  ui +="<button type='button' id='send' onclick='sendData()'>Save</button></div>";
-  ui += "<div id='w'></div>";
+  String ui = "<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0'><meta charset='utf-8'>";
+  ui += "<style>#map {height: 100%;} html, body {height: 100%; margin: 25px; padding: 10px; font-family: Sans-Serif;} #container{max-width:600px;} button, input, select {margin:15px 0px} #footer{position: absolute;bottom: 0;}</style>";
+  ui += "</head>";
+  ui += "<body><div id='container'><h1>RGB(W) control setup WiFi</h1>";
+  ui += "<div>Select your Wifi Station<br>";
+  ui += cmdSSID;  // this are the scanned networks in a html select
+  ui += "</div><div>Password<br><input type='password' id='pasw' maxlength='16' ><br /><br />";
+  ui += "<button type='button' id='send' onclick='sendData()'>Save</button></div>";
+  ui += "<div id='w'></div><div id='footer'>Please be aware you may have to reset the ESP32 to return to control page</div></div>";
   ui += "<script type='text/javascript'>";
   ui += "function sendData() {";
   ui += "  var ssid = document.getElementById('ssid').value;";
   ui += "  var pw =   document.getElementById('pasw').value;";
   ui += "  if (ssid == 'none'){ alert('Choose a WiFi Station'); return false; }";
   ui += "  if (pw.length<8 ){ alert('Enter a password minimal 8 characters'); return false;  }";
-  
-  ui += "  var xhttp = new XMLHttpRequest();";
+  ui += "  var xhttp = new XMLHttpRequest();";  // we can't use jquery so old style
   ui += "  xhttp.onreadystatechange = function() {";
   ui += "      if (this.readyState == 4 && this.status == 200) {";
   ui += "          document.getElementById('w').innerHTML =";
   ui += "          this.responseText;";
   ui += "      }";
   ui += "  };";
-  
   ui += "  xhttp.open('GET', '/api/"+ (String)mwSk +"?' + encodeURIComponent(ssid) + '=' + encodeURIComponent(pw) + '/', true);";
   ui += "  xhttp.send();";
   ui += "}";
   ui +="</script>";
-
-
-  //ui += "<script>$(document).ready(function($) {";
-  //ui += "$('#send').click(function(){ if ($('input[name=ssid]:checked').val() == undefined){ alert('Choose a WiFi Station');} if($('#pasw').val().length<8 ){alert('Enter a password minimal 8 characters');  }";
-  //ui += "$('#w').html('Please wait until action has finished.');";
-  //ui += "$.get({url:'/api/" +(String)mwSk+"?'+ $('input[name=ssid]:checked').val()+'='+$('#pasw').val()+'/', dataType:'json',  success:function(data){$('#w').html(data.message); }});   })"; //end send
-  //ui += "});"; // end jquery
   ui += "</body></html>";
   return ui;
 }
@@ -489,17 +537,41 @@ void processRequest(String req, WiFiClient espClient){
              pw = urldecode(pw); 
              Serial.print(sd +  "   " +pw);
              write_wifi_toEEPROM(EEssid, sd, pw);
-             respMsg = "SSID and Password are saved restart the ESP";
-          }   
+             respMsg = "SSID and Password are saved ESP will restart";
+             delay(5000);
+             ESP.restart();
+          } 
+           
+        } else if (req.indexOf("/command/wifi") != -1) {
+          delay(2000);
+          setupMode = true; 
         }
         
 }
+void mqtt_reconnect() {
+  // Loop until we're reconnected
+  while (!mqttClient.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    // If you do not want to use a username and password, change next line to
+    // if (client.connect("ESP8266Client")) {    
+    if (mqttClient.connect("ESP32Client", my_MQTT_USER, my_MQTT_PW)) {
+      Serial.println("connected");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
 void resetTimer(){
   timeClient.update();
-  String fTime = timeClient.getFormattedTime();
-  if (fTime.substring(0,2).toInt()==1 &&
-      fTime.substring(3,5).toInt() % 53 == 0 && 
-      fTime.substring(6,8).toInt()<3 ){
+  formTime = timeClient.getFormattedTime();
+  if (formTime.substring(0,2).toInt()==1 &&
+      formTime.substring(3,5).toInt() % 53 == 0 && 
+      formTime.substring(6,8).toInt()<3 ){
       ESP.restart();
   }  
 }
@@ -521,6 +593,33 @@ void scanNetworks(){
         cmdSSID +="</select>";
     }
     
+}
+void sendWithMQTT(){
+  if (!mqttClient.connected()) {
+     mqtt_reconnect();
+  }
+  //Serial.println(formTime);
+  JsonObject& JSONencoder = jsonBuffer.createObject();
+  JSONencoder["device"] = "ESP32";
+  JSONencoder["sensorType"] = "RGB Control";
+  JSONencoder["version"] = version;
+  JSONencoder["time"] = formTime;
+  JsonObject& colours = JSONencoder.createNestedObject("colours");
+  colours["red"]=currRed;
+  colours["green"]=currGreen;
+  colours["blue"]=currBlue;
+  colours["white"]=currWhite;
+  char JSONmessageBuffer[150];
+  JSONencoder.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
+  if (mqttClient.connected()) {
+    if (mqttClient.publish("esp/out", JSONmessageBuffer) == true) {
+      Serial.println("Success sending message by MQTT");
+    } else {
+      Serial.println("Error sending message by MQTT");
+    }
+  } else {
+    Serial.println("MQTT not connected");
+  }
 }
 void setOneColour(uint32_t V, String Clr ){
     // set var for default
@@ -637,7 +736,7 @@ void setupOTA(){
       Serial.println("\nEnd");
     })
     .onProgress([](unsigned int progress, unsigned int total) {
-      Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+      Serial.printf("Uploading: %u%%\r\n", (progress / (total / 100)));
     })
     .onError([](ota_error_t error) {
       Serial.printf("Error[%u]: ", error);
