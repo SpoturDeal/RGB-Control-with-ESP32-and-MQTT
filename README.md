@@ -71,11 +71,11 @@ always use closing /
 /*
 esp/out {"device":"ESP32",
          "sensorType":"RGB Control",
-          "time":"14:11:45",
-          "colours":{"red":0,
-                     "green":0,
-                     "blue":129,
-                     "white":0}
+         "time":"14:11:45",
+         "colours":{"red":0,
+                    "green":0,
+                    "blue":129,
+                    "white":0}
         }
 */
 
@@ -83,8 +83,18 @@ esp/out {"device":"ESP32",
 
 ## Screenshots
 #### RGB(W) Webinterface 
-![User interface](/RGBW control.png?raw=true "RGB webinterface")
+![User interface](/RGBW_control.png?raw=true "RGB webinterface")
 
-![SetUp interface](/RGBW SetUp.png?raw=true "RGB webinterface")
+If you change a value with teh slider also the color in the colour picker will be updated.
+
+The change WiFi button brings the ESP in Acces Point mode. If you don't enter a password and send 
+you need to restart the ESP to exit AP mode.
+
+
+![SetUp interface](/RGBW_SetUp.png?raw=true "RGB webinterface")
+If you don't enter a password and send you need to restart the ESP to exit AP mode.
+If your password is not stored it will go back in AP mode until a valid password/ssid combination is entered.
+
+
 
 Coming soon before 30th August 2018
