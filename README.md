@@ -20,10 +20,11 @@ Coming soon
 
 ## Updates
 
-|Date|Description|
-|--|--|
-|24th August 2018|Added support for setup by direct AP connection to ESP32 and connect to MQTT|
-|21th August 2018|Added Range sliders in user interface|
+|Date|Version|Description|
+|--|--|--|
+|25th August 2018|0.9.3|First fully working version|
+|24th August 2018|0.8.2|Added support for setup by direct AP connection to ESP32 and connect to MQTT|
+|21th August 2018|0.8.1|Added Range sliders in user interface|
 
 ## Usage in browser
 always use closing /
@@ -48,9 +49,38 @@ always use closing /
 |http:{ipaddress}/api/command/red=255/|For colours red, green, blue, white  (0 to 255)|
 
 ## api reply in json
-{"error":false,"status":"OK","time":"","message":"LED Blue set to: 121","eeprom":"Data has been updated"}
+```
+/*
+   {"error":false,
+    "status":"OK",
+    "message":"LED Blue set to: 129",
+    "colours":{"red":0,
+               "green":0,
+               "blue":129,
+               "white":0},
+    "updated":{"time":"14:11:45",
+               "eeprom":"Data has been updated",
+               "version":"0.9.3"}
+   }
+*/
 
+```
 
+## reply from MQTT
+```
+/*
+esp/out {"device":"ESP32",
+         "sensorType":"RGB Control",
+          "time":"14:11:45",
+          "version":"0.9.3",
+          "colours":{"red":0,
+                     "green":0,
+                     "blue":129,
+                     "white":0}
+        }
+*/
+
+```
 
 ## Screenshots
 #### RGB(W) Webinterface 
