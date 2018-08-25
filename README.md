@@ -89,16 +89,11 @@ esp/out {"device":"ESP32",
 
 ## Screenshots
 #### RGB(W) Webinterface 
-![User interface](/RGBW_control.png?raw=true "RGB webinterface")
-
-If you change a value with one the slider also the color in the colour picker will be updated and vice versa.
-
-The change WiFi button brings the ESP in Acces Point mode. If you don't enter a password and send 
+![User interface](/RGBW_control.png?raw=true "RGB webinterface") If you change a value with one the slider also the color in the colour picker will be updated and vice versa. The **change WiFi** button brings the ESP in Acces Point mode. If you don't enter a password and send 
 you need to restart the ESP to exit AP mode.
 
 
-![SetUp interface](/RGBW_SetUp.png?raw=true "RGB webinterface")
-If you don't enter a password and send you need to restart the ESP to exit AP mode.
+![SetUp interface](/RGBW_SetUp.png?raw=true "RGB webinterface") If you don't enter a password and send you need to restart the ESP to exit AP mode.
 If your password is not stored it will go back in AP mode until a valid password/ssid combination is entered.
 
 
