@@ -602,14 +602,14 @@ void sendWithMQTT(){
   JsonObject& JSONencoder = jsonBuffer.createObject();
   JSONencoder["device"] = "ESP32";
   JSONencoder["sensorType"] = "RGB Control";
-  JSONencoder["version"] = version;
+  //JSONencoder["version"] = version;
   JSONencoder["time"] = formTime;
   JsonObject& colours = JSONencoder.createNestedObject("colours");
   colours["red"]=currRed;
   colours["green"]=currGreen;
   colours["blue"]=currBlue;
   colours["white"]=currWhite;
-  char JSONmessageBuffer[150];
+  char JSONmessageBuffer[250];
   JSONencoder.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
   if (mqttClient.connected()) {
     if (mqttClient.publish("esp/out", JSONmessageBuffer) == true) {
