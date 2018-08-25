@@ -602,7 +602,6 @@ void sendWithMQTT(){
   JsonObject& JSONencoder = jsonBuffer.createObject();
   JSONencoder["device"] = "ESP32";
   JSONencoder["sensorType"] = "RGB Control";
-  //JSONencoder["version"] = version;
   JSONencoder["time"] = formTime;
   JsonObject& colours = JSONencoder.createNestedObject("colours");
   colours["red"]=currRed;
@@ -642,13 +641,14 @@ void setOneColour(uint32_t V, String Clr ){
     } 
     ledcSetup(Channel, LEDC_BASE_FREQ ,LEDC_TIMER_13_BIT);
     ledcAttachPin(Pin, Channel);
-    for (int dutyCycle = 0; dutyCycle <= 255; dutyCycle++) {
+    for (int doUp = 0; doUp <= 255; doUp++) {
       // Increase! Cycle up loop and check what is current level
-      if ( V > dutyCycle && V > currTemp ){
-        ledcAnalogWrite(Channel, dutyCycle);
+      if (doUp > currTemp && currTemp < V && doUp <= V){   
+        ledcAnalogWrite(Channel, doUp);
       }
-      if ( V < 255-dutyCycle && V < currTemp){
-        ledcAnalogWrite(Channel, 255-dutyCycle);
+      int down = 255-doUp;
+      if (down < currTemp  && currTemp > V && down >= V ) {  
+        ledcAnalogWrite(Channel, down);
       }
       delay(delayMills);
     }
@@ -672,35 +672,36 @@ void setRGBColor(uint32_t R, uint32_t G, uint32_t B, uint32_t W, bool toEEprom) 
     // all colours are called in each cycle to make all leds
     // increase or decrease at the same moment.
     // Getting more light first is to prevent flashes 
-    for (int dutyCycle = 0; dutyCycle <= 255; dutyCycle++) {
-      if ( R > dutyCycle && R > currRed ){
-        ledcAnalogWrite(LEDC_CHANNEL_0_R, dutyCycle);
+    for (int doUp = 0; doUp <= 255; doUp++) {
+      if (doUp > currRed && currRed < R && doUp <= R){
+        ledcAnalogWrite(LEDC_CHANNEL_0_R, doUp);
       }
-      if ( G > dutyCycle && G > currGreen ){
-        ledcAnalogWrite(LEDC_CHANNEL_1_G, dutyCycle);
+      if (doUp > currGreen && currGreen < G && doUp <= G ){
+        ledcAnalogWrite(LEDC_CHANNEL_1_G, doUp);
       }
-      if ( B > dutyCycle && B > currBlue ){
-        ledcAnalogWrite(LEDC_CHANNEL_2_B, dutyCycle);
+      if (doUp > currBlue && currBlue < B && doUp <= B){
+        ledcAnalogWrite(LEDC_CHANNEL_2_B, doUp);
       }
-      if ( W > dutyCycle && W > currWhite ){
-        ledcAnalogWrite(LEDC_CHANNEL_3_W, dutyCycle);
+      if (doUp > currWhite && currWhite < W && doUp <= W){
+        ledcAnalogWrite(LEDC_CHANNEL_3_W, doUp);
       }
-      if ( R < 255-dutyCycle && R < currRed ){
-        ledcAnalogWrite(LEDC_CHANNEL_0_R, 255-dutyCycle);
+      int down = 255-doUp;
+      if (down < currRed  && currRed > R && down >= R ){
+        ledcAnalogWrite(LEDC_CHANNEL_0_R, down);
       }
-      if ( G < 255-dutyCycle && G < currGreen ){
-        ledcAnalogWrite(LEDC_CHANNEL_1_G, 255-dutyCycle);
+      if (down < currGreen  && currGreen > G && down >= G ){
+        ledcAnalogWrite(LEDC_CHANNEL_1_G, down);
       }
-      if ( B < 255-dutyCycle && B < currBlue ){
-        ledcAnalogWrite(LEDC_CHANNEL_2_B, 255-dutyCycle);
+      if (down < currBlue && currBlue > B && down >= B  ){
+        ledcAnalogWrite(LEDC_CHANNEL_2_B, down);
       }
-      if ( W < 255-dutyCycle && W < currWhite ){
-        ledcAnalogWrite(LEDC_CHANNEL_3_W, 255-dutyCycle);
+      if (down < currWhite && currWhite > W && down >= W  ){
+        ledcAnalogWrite(LEDC_CHANNEL_3_W, down);
       }
       // the delay can't be too large it would stop the loop
       // 10 is about 2.5 second (255 * 10)
       delay (delayMills);
-      Serial.println("");
+      //Serial.println("");
     }
     
   
