@@ -66,13 +66,12 @@ always use closing /
 
 ```
 
-## reply from MQTT
+## reply to MQTT
 ```
 /*
 esp/out {"device":"ESP32",
          "sensorType":"RGB Control",
           "time":"14:11:45",
-          "version":"0.9.3",
           "colours":{"red":0,
                      "green":0,
                      "blue":129,
