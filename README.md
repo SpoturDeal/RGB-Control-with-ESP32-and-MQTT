@@ -83,6 +83,8 @@ esp/out {"device":"ESP32",
 
 ## Screenshots
 #### RGB(W) Webinterface 
-![Webserver](/rgbinterface.png?raw=true "RGB webinterface")
+![User interface](/RGBW control.png?raw=true "RGB webinterface")
+
+![SetUp interface](/RGBW SetUp.png?raw=true "RGB webinterface")
 
 Coming soon before 30th August 2018
