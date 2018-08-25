@@ -2,7 +2,13 @@
 An RGB(W) control on ESP32 with webinterface and MQTT status replies.
 
 This RGB control can be used with different domotica systems.
-The last set colours is stored in EEprom after a start up, it will return to last colour
+The last set colours is stored in EEprom after a start up, it will return to last colour.
+
+With the few parts you have full IoT control over your RGB devices for less then EUR 15.00
+
+Once you have uploaded the sketch just find "Esp32_SetUp" in your networks and connect. Then open your browser and enter 192.168.4.1 here you select the Wireless Network you want to use and the password. After clicking send and the confirmation the ESP will restart.
+
+On a mobile device you can use ***fing*** on <a href="https://play.google.com/store/apps/details?id=com.overlook.android.fing&hl=nl">Google Play</a> or <a href="https://itunes.apple.com/nl/app/fing-netwerk-scanner/id430921107?mt=8">Apple iTunes</a> to find the IP address given to the ESP32.
 
 ## Parts
 
@@ -85,7 +91,7 @@ esp/out {"device":"ESP32",
 #### RGB(W) Webinterface 
 ![User interface](/RGBW_control.png?raw=true "RGB webinterface")
 
-If you change a value with teh slider also the color in the colour picker will be updated.
+If you change a value with one the slider also the color in the colour picker will be updated and vice versa.
 
 The change WiFi button brings the ESP in Acces Point mode. If you don't enter a password and send 
 you need to restart the ESP to exit AP mode.
