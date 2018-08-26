@@ -13,7 +13,7 @@ String cmdSSID;
 String formTime;
 String ipStr;
 int counter = 5;
-String version ="0.9.3";
+String version ="0.9.4";
 
 // For LEDS
 #define LEDC_CHANNEL_0_R  0
@@ -45,6 +45,10 @@ uint8_t EEred = 4;
 uint8_t EEgreen = 8;
 uint8_t EEblue = 12;
 uint8_t EEwhite =16;
+uint8_t EEtimer1 = 80;
+uint8_t EEtimer2 = 130;
+uint8_t EEtimer3 = 180;
+
 
 uint8_t EEssid = 32;   // eeprom location ssid
 uint8_t EEset = 20;    // if set to 1 then EEssid and EEwpapw are initialised with one space
@@ -54,9 +58,23 @@ struct wifiConn {
   char ePasw[32];
 };
 
+struct ledTimer {
+  int id;
+  int startTime;  // minutes since midnight
+  int endTime;    
+  int red;
+  int green;
+  int blue;
+  int white;
+  int status;  //0 = off, 1 = on
+  int active;  //0 = off, 1 = on
+};
+
+ledTimer runTimes[3];
 bool justOnce = false;
 bool debugPrint = true;
 bool setupMode = false;
+bool setupTimers = false;
 
 // DO NOT EDIT THE VALUE
 const char* mwSk = "dmmadihq7k37samgl4q3m94m1974qidt7tmyalji915ed2j";

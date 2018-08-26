@@ -38,17 +38,27 @@ void writeData(uint8_t addr, uint32_t datInt);
 
 void setup() {
   // start the EEprom
-  EEPROM.begin(256);
+  EEPROM.begin(300);
   Serial.begin(115200);
+     
+  EEPROM.get(EEset,testvar);
+  if (testvar -= 1){
+    // fill the ssid on eeprom with a fixed nones
+    //if not set store dummy data in EEprom
+    write_wifi_toEEPROM(EEssid, "nonessid", "nonepassword");
+    writeData(EEset,1);
+    ledTimer timedat;
+    for (int i=0; i<=2; i++){
+      timedat = { i, 0, 0, 0, 0, 0, 0, 0, 0 };
+      write_timer_toEEPROM(timedat);
+    }
+  }
+  // load the timers
+  for (int i=0; i<=2; i++){
+     runTimes[i] = read_timer_fromEEPROM(i);
+  }
   // if no ssid and password in credentials.h then check eeprom
   if (strlen(ssid) < 3 || strlen(password) < 3){
-    EEPROM.get(EEset,testvar);
-    //if not set store dummy data in EEprom
-    if (testvar -= 1){
-      // fill the ssid on eeprom with a fixed nones
-      write_wifi_toEEPROM(EEssid, "nonessid", "nonepassword");
-      writeData(EEset,1);
-    } else {
       //if was set then read the data 
       wifiConn staConn = read_wifi_fromEEPROM(EEssid);
       //use the data from EEprom if it is not nones
@@ -58,7 +68,7 @@ void setup() {
       if (staConn.ePasw != "nonepassword") { 
         password = staConn.ePasw; 
       }
-    }
+    
   }
   // Start WiFi depending on mode
   // Start Access point if ssid is not set
@@ -103,13 +113,15 @@ void setup() {
   // write some startup info
   initToSerial();
   // start the server
-  IPAddress myIP = WiFi.localIP();
-  ipStr = String(myIP[0])+"."+String(myIP[1])+"."+String(myIP[2])+"."+String(myIP[3]); 
+ 
   server.begin();
   // start the time client
   timeClient.begin();
   // setup pins for LEDS
   initLEDS();
+ 
+  IPAddress myIP = WiFi.localIP();
+  ipStr = String(myIP[0])+"."+String(myIP[1])+"."+String(myIP[2])+"."+String(myIP[3]); 
 }
 
 void loop() {
@@ -118,14 +130,29 @@ void loop() {
       // LEDS to last setting
       startColours();
       ArduinoOTA.handle();
-      if (!mqttClient.connected()) {
-          //mqtt_reconnect();
-      }
       mqttClient.loop();
   }
   // once a day restart ESP
-  resetTimer(); 
-  espClient = server.available();        // listen for user by browser
+  resetTimer();
+  int currMinute = timeClient.getHours() * 60 + timeClient.getMinutes();
+  // check if a timer needs to be activated
+  for (int tmCheck=0;tmCheck<3;tmCheck++){
+     if (runTimes[tmCheck].active == 1 ){
+        if (runTimes[tmCheck].startTime == currMinute && runTimes[tmCheck].status == 0 ){
+            // set the requested colour
+            setRGBColor(runTimes[tmCheck].red,runTimes[tmCheck].green,runTimes[tmCheck].blue,runTimes[tmCheck].white,true);
+            // set the status to 1 to prevent multiple start in the minute
+            runTimes[tmCheck].status=1;
+            
+        } else if (runTimes[tmCheck].endTime == currMinute && runTimes[tmCheck].status == 1 ){
+            setRGBColor(0,0,0,0,false);
+             // set the status to 0 to prevent multiple sops in the minute
+            runTimes[tmCheck].status=1;
+        }  
+     }
+  }
+
+  WiFiClient espClient = server.available();        // listen for user by browser
   if (espClient) {                             
     
     while (espClient.connected()) {            
@@ -135,18 +162,22 @@ void loop() {
         respMsg = "Ready";     // HTTP Respons Message
         // Read the first line of of the request
         String req = espClient.readStringUntil('\r');
-        
+        setupTimers = false;
         processRequest (req,espClient);  // for commands
         
         String s = "Something went wrong with web interface";
         if (req.indexOf("/api/") == -1) {
             if (setupMode == false){
-                s = interfaceUser();
+                if (setupTimers == false){
+                  interfaceUser(espClient);
+                } else {
+                  interfaceTimers(espClient);
+                }
+                break;
             } else {
-                s = interfaceSetUp();
+                interfaceSetUp(espClient);
             }
-            // send reply
-            espClient.print(s);
+            break;
         } else if (req.indexOf("/api/") != -1){
             //  If used from api just a line reply
             if (setupMode == false){
@@ -174,7 +205,11 @@ void loop() {
             }
         } else {
             // a request gives just a reply
-            espClient.print(s);
+            if (setupTimers == false){
+              espClient.print(s);
+            } else {
+              //interfaceTimers(espClient);
+            }
         } 
         espClient.stop();
         delay(1);
@@ -234,114 +269,247 @@ unsigned char h2int(char c){
     }
     return(0);
 }
-String interfaceUser(){
+void interfaceUser(WiFiClient espClient) {
   String onoff=(currRed + currGreen + currBlue + currWhite > 0?"off":"on");
   String clr = (currRed<16?"0":"")+String(currRed, HEX);
   clr += (currGreen<16?"0":"") +String(currGreen,HEX);
   clr += (currBlue<16?"0":"") +String(currBlue,HEX);
-  String ui = "<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0'><meta charset='utf-8'>";
-  ui += "<style>#map {height: 100%;} html, body {height: 100%; margin: 25px; padding: 10px;font-family: Sans-Serif;} #container{max-width:600px;} #footer{position: absolute;bottom: 0;}</style>";
-  ui += "<link rel='stylesheet' href='https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css'>";
-  ui += "<link rel='stylesheet' href='https://cdnjs.cloudflare.com/ajax/libs/spectrum/1.8.0/spectrum.min.css'>";
-  ui += "<script defer src='https://use.fontawesome.com/releases/v5.0.9/js/all.js'></script>";
-  ui += "</head>";
-  ui += "<body><div id='container'><h1>RGB(W) control with WiFi</h1>";
-  ui += "<button type='button' class='btn btn-success btn myBtn' style='display:none;' id='led-on'><i class='far fa-lightbulb fa-2x'></i>Switch On</button>";
-  ui += "<button type='button' class='btn btn-secondary btn myBtn' style='display:none;' id='led-off'><i class='fas fa-lightbulb fa-2x'></i>Switch Off</button><br>";
-  ui += "<div>Move slider to change colour</div>";
-  ui += "<div><table><tr><td>Red</td><td><input id='red' class='range' type='range' min='0' max='255' value='"+(String)currRed+"'></td><td style='text-align: right;'><span id='vred'>"+(String)currRed+"</span></td></tr>";
-  ui += "<tr><td>Green</td><td><input id='green' class='range' type='range' min='0' max='255' value='"+(String)currGreen+"'></td><td style='text-align:right;'><span id='vgreen'>"+(String)currGreen+"</span></td></tr>";
-  ui += "<tr><td>Blue</td><td><input id='blue' class='range' type='range' min='0' max='255' value='"+(String)currBlue+"'></td><td style='text-align:right;'><span id='vblue'>"+(String)currBlue+"</span></td></tr>";
-  ui += "<tr><td>White</td><td><input id='white'class='range' type='range' min='0' max='255' value='"+(String)currWhite+"'></td><td style='text-align:right;'><span id='vwhite'>"+(String)currWhite+"</span></td></tr></table><div>";
-  ui += "<div>Or select a colour with the colour picker.</div>";
-  ui += "<div><input type='text' id='custom' /></div>";
-  ui += "<div id='w' class='alert alert-info' role='alert'>"+respMsg+"</div>";
-  ui += "<div id='footer' ><button type='button' id='wifi' class='btn btn-outline-secondary btn-sm'><i class='fas fa-wifi'></i>&nbsp;Change WiFi</button> <span>Version: " + version + "</span></div></div>";
-  ui +="<script src='https://code.jquery.com/jquery-3.2.1.min.js'></script><script src='https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js' ></script><script src='https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js'></script>";
-  ui += "<script src='https://cdnjs.cloudflare.com/ajax/libs/spectrum/1.8.0/spectrum.min.js'></script>";
-  ui += "<script>";
-  ui += "$(document).ready(function($) {";
-  ui += "  function send(dowhat){"; 
-  ui += "    $('#w').html('Please wait until action has finished.');";
-  ui += "    $.get({url:'/api/command/' + dowhat,"; // send the request using AJAX
-  ui += "      dataType:'json',";
-  ui += "       success:function(data){";
-  ui += "          $('#w').html(data.message);";
-  ui += "          var c = data.colours;";
-  ui += "          $('#red').val(c.red);";      // update 4 sliders
-  ui += "          $('#green').val(c.green);";
-  ui += "          $('#blue').val(c.blue);";
-  ui += "          $('#white').val(c.white);";
-  ui +="           $('#vred').html(c.red);";    // udate the number behind slider
-  ui += "          $('#vgreen').html(c.green);";
-  ui += "          $('#vblue').html(c.blue);";
-  ui += "          $('#vwhite').html(c.white);";
-  ui += "          var hexString = (c.red<16?'0':'')+ c.red.toString(16);"; // make hex
-  ui += "          hexString += (c.green<16?'0':'')+ c.green.toString(16);";
-  ui += "          hexString += (c.blue<16?'0':'')+ c.blue.toString(16);";
-  ui += "          $('#custom').spectrum('set',hexString);";  // set the colour to picker
-  ui += "       }";
-  ui += "    });";
-  ui += "  } ";
-  ui += "  $('.range').change(function(){"; // react to change of colour slider
-  ui += "    send($(this).attr('id')+'='+$(this).val());"; // prepare to send
-  ui += "    $('#v'+$(this).attr('id')).html($(this).val());";
-  ui += "  });";
-  ui += "  $('.myBtn').click(function(){"; // react to click button on/off
-  ui += "    var per= $(this).attr('id').split('-');"; // id of btn
-  ui += "    $(this).hide();";
-  ui += "    $('#'+per[0]+'-'+(per[1]=='off'?'on':'off')).show();";
-  ui += "    send(per[1]);"; // prepare to send 
-  ui += "  });";
-  ui += "  $('#wifi').click(function(){";
-  ui += "      window.location.href ='http://"+ipStr+"/command/wifi';";
-  ui += "  });";
-  ui += "  $('.myBtn').hide();"; // all buttons hide 
-  ui += "  $('#led-"+onoff+"' ).show();"; // only show button that is needed
-  ui += "  $('#custom').spectrum({";  // color picker by bgrin https://bgrins.github.io/spectrum/
-  ui += "    color:'"+clr+"',";
-  ui += "    preferredFormat: 'hex',";
-  ui += "    showInput: true,";
-  ui += "    showPalette: true,";
-  ui +="     hideAfterPaletteSelect:true, ";
-  ui += "    palette: [['#000','#444','#666','#999','#ccc','#eee','#f3f3f3','#fff'], ['#f00','#f90','#ff0','#0f0','#0ff','#00f','#90f','#f0f'], ['#f4cccc','#fce5cd','#fff2cc','#d9ead3','#d0e0e3','#cfe2f3','#d9d2e9','#ead1dc'], ['#ea9999','#f9cb9c','#ffe599','#b6d7a8','#a2c4c9','#9fc5e8','#b4a7d6','#d5a6bd'], ['#e06666','#f6b26b','#ffd966','#93c47d','#76a5af','#6fa8dc','#8e7cc3','#c27ba0'], ['#c00','#e69138','#f1c232','#6aa84f','#45818e','#3d85c6','#674ea7','#a64d79'], ['#900','#b45f06','#bf9000','#38761d','#134f5c','#0b5394','#351c75','#741b47'], ['#600','#783f04','#7f6000','#274e13','#0c343d','#073763','#20124d','#4c1130']],";
-  ui += "    change: function(color) {";
-  ui += "      send('hex?' + color.toHex() + '/');";
-  ui += "    } ";
-  ui += "  });"; // end of spectrum
-  ui += "});"; // end jquery
-  ui += "</script></body></html>";
-  return ui;         
+
+  espClient.print ("<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0'><meta charset='utf-8'>");
+  espClient.print ("<style>#map {height: 100%;} html, body {height: 100%; margin: 25px; padding: 10px;font-family: Sans-Serif;} #container{max-width:600px;} #footer{position: absolute;bottom: 0;}</style>");
+  espClient.print ("<link rel='stylesheet' href='https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css'>");
+  espClient.print ("<link rel='stylesheet' href='https://cdnjs.cloudflare.com/ajax/libs/spectrum/1.8.0/spectrum.min.css'>");
+  espClient.print ("<script defer src='https://use.fontawesome.com/releases/v5.0.9/js/all.js'></script>");
+  espClient.print ("</head>");
+  espClient.print ("<body><div id='container'><h1>RGB(W) control with WiFi</h1>");
+  espClient.print ("<button type='button' class='btn btn-success btn myBtn' style='display:none;' id='led-on'><i class='far fa-lightbulb fa-2x'></i>Switch On</button>");
+  espClient.print ("<button type='button' class='btn btn-secondary btn myBtn' style='display:none;' id='led-off'><i class='fas fa-lightbulb fa-2x'></i>Switch Off</button><br>");
+  espClient.print ("<div>Move slider to change colour</div>");
+  espClient.print ("<div><table><tr><td>Red</td><td><input id='red' class='range' type='range' min='0' max='255' value='"+(String)currRed+"'></td><td style='text-align: right;'><span id='vred'>"+(String)currRed+"</span></td></tr>");
+  espClient.print ("<tr><td>Green</td><td><input id='green' class='range' type='range' min='0' max='255' value='"+(String)currGreen+"'></td><td style='text-align:right;'><span id='vgreen'>"+(String)currGreen+"</span></td></tr>");
+  espClient.print ("<tr><td>Blue</td><td><input id='blue' class='range' type='range' min='0' max='255' value='"+(String)currBlue+"'></td><td style='text-align:right;'><span id='vblue'>"+(String)currBlue+"</span></td></tr>");
+  espClient.print ("<tr><td>White</td><td><input id='white'class='range' type='range' min='0' max='255' value='"+(String)currWhite+"'></td><td style='text-align:right;'><span id='vwhite'>"+(String)currWhite+"</span></td></tr></table><div>");
+  espClient.print ("<div>Or select a colour with the colour picker.</div>");
+  espClient.print ("<div><input type='text' id='custom' /></div>");
+  espClient.print ("<div id='w' class='alert alert-info' role='alert'> " + respMsg + "</div>");
+  espClient.print ("<div id='footer' ><button type='button' id='wifi' class='btn btn-outline-secondary btn-sm'><i class='fas fa-wifi'></i>&nbsp;Change WiFi</button> ");
+  espClient.print ("<button type='button' id='timers' class='btn btn-outline-secondary btn-sm'><i class='fas fa-clock'></i>&nbsp;Timers</button>"); 
+  espClient.print ("<span>&nbsp;Version: " + version + "</span>");
+  espClient.print ("</div></div>");
+  espClient.print ("<script src='https://code.jquery.com/jquery-3.2.1.min.js'></script><script src='https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js' ></script><script src='https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js'></script>");
+  espClient.print ("<script src='https://cdnjs.cloudflare.com/ajax/libs/spectrum/1.8.0/spectrum.min.js'></script>");
+  espClient.print ("<script>");
+  espClient.println ("$(document).ready(function($) {");
+  espClient.println ("  function send(dowhat){"); 
+  espClient.println ("    $('#w').html('Please wait until action has finished.');");
+  espClient.println ("    $.get({url:'/api/command/' + dowhat,"); // send the request using AJAX
+  espClient.println ("      dataType:'json',");
+  espClient.println ("       success:function(data){");
+  espClient.println ("          $('#w').html(data.message);");
+  espClient.println ("          var c = data.colours;");
+  espClient.println ("          $('#red').val(c.red);");      // update 4 sliders
+  espClient.println ("          $('#green').val(c.green);");
+  espClient.println ("          $('#blue').val(c.blue);");
+  espClient.println ("          $('#white').val(c.white);");
+  espClient.println ("           $('#vred').html(c.red);");    // udate the number behind slider
+  espClient.println ("          $('#vgreen').html(c.green);");
+  espClient.println ("          $('#vblue').html(c.blue);");
+  espClient.println ("          $('#vwhite').html(c.white);");
+  espClient.println ("          var hexString = (c.red<16?'0':'')+ c.red.toString(16);"); // make hex
+  espClient.println ("          hexString += (c.green<16?'0':'')+ c.green.toString(16);");
+  espClient.println ("          hexString += (c.blue<16?'0':'')+ c.blue.toString(16);");
+  espClient.println ("          $('#custom').spectrum('set',hexString);");  // set the colour to picker
+  espClient.println ("       }");
+  espClient.println ("    });");
+  espClient.println ("  } ");
+  espClient.println ("  $('.range').change(function(){"); // react to change of colour slider
+  espClient.println ("    send($(this).attr('id')+'='+$(this).val());"); // prepare to send
+  espClient.println ("    $('#v'+$(this).attr('id')).html($(this).val());");
+  espClient.println ("  });");
+  espClient.println ("  $('.myBtn').click(function(){"); // react to click button on/off
+  espClient.println ("    var per= $(this).attr('id').split('-');"); // id of btn
+  espClient.println ("    $(this).hide();");
+  espClient.println ("    $('#'+per[0]+'-'+(per[1]=='off'?'on':'off')).show();");
+  espClient.println ("    send(per[1]);"); // prepare to send 
+  espClient.println ("  });");
+  espClient.println ("  $('#wifi').click(function(){ ");
+  espClient.println ("      window.location.href = 'http://" + ipStr + "/command/wifi';");
+  espClient.println ("  });");
+  espClient.println ("  $('#timers').click(function(){");
+  espClient.println ("      window.location.href = 'http://" + ipStr + "/settimers';");
+  espClient.println ("  });");
+  espClient.println ("  $('.myBtn').hide();"); // all buttons hide 
+  espClient.println ("  $('#led-"+onoff+"' ).show();"); // only show button that is needed
+  espClient.println ("  $('#custom').spectrum({");  // color picker by bgrin https://bgrins.github.io/spectrum/
+  espClient.println ("    color:'"+clr+"',");
+  espClient.println ("    preferredFormat: 'hex',");
+  espClient.println ("    showInput: true,");
+  espClient.println ("    showPalette: true,");
+  espClient.println ("     hideAfterPaletteSelect:true, ");
+  espClient.println ("    palette: [['#000','#444','#666','#999','#ccc','#eee','#f3f3f3','#fff'], ['#f00','#f90','#ff0','#0f0','#0ff','#00f','#90f','#f0f'], ['#f4cccc','#fce5cd','#fff2cc','#d9ead3','#d0e0e3','#cfe2f3','#d9d2e9','#ead1dc'], ['#ea9999','#f9cb9c','#ffe599','#b6d7a8','#a2c4c9','#9fc5e8','#b4a7d6','#d5a6bd'], ['#e06666','#f6b26b','#ffd966','#93c47d','#76a5af','#6fa8dc','#8e7cc3','#c27ba0'], ['#c00','#e69138','#f1c232','#6aa84f','#45818e','#3d85c6','#674ea7','#a64d79'], ['#900','#b45f06','#bf9000','#38761d','#134f5c','#0b5394','#351c75','#741b47'], ['#600','#783f04','#7f6000','#274e13','#0c343d','#073763','#20124d','#4c1130']],");
+  espClient.println ("    change: function(color) {");
+  espClient.println ("      send('hex?' + color.toHex() + '/');");
+  espClient.println ("    } ");
+  espClient.println ("  });"); // end of spectrum
+  espClient.println ("});"); // end jquery
+  espClient.print ("</script></body></html>");
+  espClient.stop();     
 }
-String interfaceSetUp(){
-  String ui = "<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0'><meta charset='utf-8'>";
-  ui += "<style>#map {height: 100%;} html, body {height: 100%; margin: 25px; padding: 10px; font-family: Sans-Serif;} #container{max-width:600px;} button, input, select {margin:15px 0px} #footer{position: absolute;bottom: 0;}</style>";
-  ui += "</head>";
-  ui += "<body><div id='container'><h1>RGB(W) control setup WiFi</h1>";
-  ui += "<div>Select your Wifi Station<br>";
-  ui += cmdSSID;  // this are the scanned networks in a html select
-  ui += "</div><div>Password<br><input type='password' id='pasw' maxlength='16' ><br /><br />";
-  ui += "<button type='button' id='send' onclick='sendData()'>Save</button></div>";
-  ui += "<div id='w'></div><div id='footer'>Please be aware you may have to reset the ESP32 to return to control page</div></div>";
-  ui += "<script type='text/javascript'>";
-  ui += "function sendData() {";
-  ui += "  var ssid = document.getElementById('ssid').value;";
-  ui += "  var pw =   document.getElementById('pasw').value;";
-  ui += "  if (ssid == 'none'){ alert('Choose a WiFi Station'); return false; }";
-  ui += "  if (pw.length<8 ){ alert('Enter a password minimal 8 characters'); return false;  }";
-  ui += "  var xhttp = new XMLHttpRequest();";  // we can't use jquery so old style
-  ui += "  xhttp.onreadystatechange = function() {";
-  ui += "      if (this.readyState == 4 && this.status == 200) {";
-  ui += "          document.getElementById('w').innerHTML =";
-  ui += "          this.responseText;";
-  ui += "      }";
-  ui += "  };";
-  ui += "  xhttp.open('GET', '/api/"+ (String)mwSk +"?' + encodeURIComponent(ssid) + '=' + encodeURIComponent(pw) + '/', true);";
-  ui += "  xhttp.send();";
-  ui += "}";
-  ui +="</script>";
-  ui += "</body></html>";
-  return ui;
+void interfaceSetUp(WiFiClient espClient){
+  espClient.print ("<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0'><meta charset='utf-8'>");
+  espClient.print ("<style>#map {height: 100%;} html, body {height: 100%; margin: 25px; padding: 10px; font-family: Sans-Serif;} #container{max-width:600px;} button, input, select {margin:15px 0px} #footer{position: absolute;bottom: 0;}</style>");
+  espClient.print ("</head>");
+  espClient.print ("<body><div id='container'><h1>RGB(W) control setup WiFi</h1>");
+  espClient.print ("<div>Select your Wifi Station<br>");
+  espClient.print (cmdSSID);  // this are the scanned networks in a html select
+  espClient.print ("</div><div>Password<br><input type='text' id='pasw' maxlength='16' ><br /><br />");
+  espClient.print ("<button type='button' id='send' onclick='sendData()'>Save</button></div>");
+  espClient.print ("<div id='w'></div><div id='footer'>Please be aware you may have to reset the ESP32 to return to control page</div></div>");
+  espClient.print ("<script type='text/javascript'>");
+  espClient.println ("function sendData() {");
+  espClient.println ("  var ssid = document.getElementById('ssid').value;");
+  espClient.println ("  var pw =   document.getElementById('pasw').value;");
+  espClient.println ("  if (ssid == 'none'){ alert('Choose a WiFi Station'); return false; }");
+  espClient.println ("  if (pw.length<8 ){ alert('Enter a password minimal 8 characters'); return false;  }");
+  espClient.println ("  var xhttp = new XMLHttpRequest();");  // we can't use jquery so old style
+  espClient.println ("  xhttp.onreadystatechange = function() {");
+  espClient.println ("      if (this.readyState == 4 && this.status == 200) {");
+  espClient.println ("          document.getElementById('w').innerHTML =");
+  espClient.println ("          this.responseText;");
+  espClient.println ("      }");
+  espClient.println ("  };");
+  espClient.println ("  xhttp.open('GET', '/api/"+ (String)mwSk +"?' + encodeURIComponent(ssid) + '=' + encodeURIComponent(pw) + '/', true);");
+  espClient.println ("  xhttp.send();");
+  espClient.println ("}");
+  espClient.print ("</script>");
+  espClient.print ("</body></html>");
+  espClient.stop();
+}
+void interfaceTimers(WiFiClient espClient){
+  int totMins;
+  int rdHr;
+  int rdMin;
+  int cHk;
+  String Check;
+  String pos;
+  espClient.print ("<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0'><meta charset='utf-8'>");
+  espClient.print ("<style>#map {height: 100%;} html, body {height: 100%; margin: 25px; padding: 10px;font-family: Sans-Serif;}");
+  espClient.print ("#container{max-width:600px;} #footer{position: absolute;bottom: 0;} tr th, .tac{text-align:center;}");
+  espClient.print ("td {padding:0px 2px;} tr th, tr td:nth-child(odd) { background: #cfe2f3; } input {width:50px; }</style>");
+  espClient.print ("<link rel='stylesheet' href='https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css'>");
+  espClient.print ("<link rel='stylesheet' href='https://cdnjs.cloudflare.com/ajax/libs/spectrum/1.8.0/spectrum.min.css'>");
+  espClient.print ("<script defer src='https://use.fontawesome.com/releases/v5.0.9/js/all.js'></script>");
+  espClient.print ("</head>");
+  espClient.print ("<body><div id='container'><h1>RGB(W) Timers</h1>");
+  espClient.print ("<div><table><tr><th colspan='2'>Time</th><th colspan='4'>Colour</th><th></th><th></th><th></tr>");
+  espClient.print ("<tr><th>Start</th><th>End</th><th>Red</th><th>Green</th><th>Blue</th><th>White</th><th>Active</th><th>Save</th><th></th></tr>");
+  // for some silly reason the for loop fails
+  //for (int =1; n<4; n++){
+  int n=0; 
+  pos=(String)n;
+  totMins = runTimes[n].startTime;
+  rdHr=0; rdMin=0;
+  if (totMins > 0){ rdHr = totMins/60; rdMin =totMins-(rdHr*60); }
+  espClient.print ("<tr><td><input type='number' class='mc' id='starthrs-"+pos+"' min='0' max='23' value='"+(String)rdHr+"'><b>:</b>");
+  espClient.print ("<input type='number' class='mc' id='startmin-"+pos+"' min='0' max='59' value='"+(String)rdMin+"'></td>");
+  totMins = runTimes[n].endTime;
+  rdHr=0;
+  rdMin=0;
+  if (totMins > 0){ rdHr = totMins/60; rdMin = totMins-(rdHr*60); }
+  Check="checked";
+  cHk = runTimes[n].active;
+  if (cHk == 0){Check = ""; }
+  espClient.print ("<td><input type='number' class='mc' id='endhrs-"+pos+"' min='0' max='23' value='"+(String)rdHr+"'><b>:</b>");
+  espClient.print ("<input type='number' class='mc' id='endmin-"+pos+"' min='0' max='59' value='"+(String)rdMin+"'></td>");
+  espClient.print ("<td><input type='number' class='mc' id='red-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].red+"'></td>");
+  espClient.print ("<td><input type='number' class='mc' id='green-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].green+"'></td>");
+  espClient.print ("<td><input type='number' class='mc' id='blue-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].blue+"'></td>");
+  espClient.print ("<td><input type='number' class='mc' id='white-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].white+"'></td>");
+  espClient.print ("<td class='tac'><input type='checkbox' id='active-"+pos+"' " + Check+"></td>");
+  espClient.print ("<td><button type='button' id='save-"+pos+"' class='store btn btn-outline-secondary btn-sm'><i class='far fa-save'></i><td></tr>");
+
+  n=1; 
+  pos=(String)n;
+  totMins = runTimes[n].startTime;
+  rdHr=0; rdMin=0;
+  if (totMins > 0){ rdHr = totMins/60; rdMin =totMins-(rdHr*60); }
+  espClient.print ("<tr><td><input type='number' class='mc' id='starthrs-"+pos+"' min='0' max='23' value='"+(String)rdHr+"'><b>:</b>");
+  espClient.print ("<input type='number' class='mc' id='startmin-"+pos+"' min='0' max='59' value='"+(String)rdMin+"'></td>");
+  totMins = runTimes[n].endTime;
+  rdHr=0;
+  rdMin=0;
+  if (totMins > 0){ rdHr = totMins/60; rdMin = totMins-(rdHr*60); }
+  Check="checked";
+  cHk = runTimes[n].active;
+  if (cHk == 0){Check = ""; }
+  espClient.print ("<td><input type='number' class='mc' id='endhrs-"+pos+"' min='0' max='23' value='"+(String)rdHr+"'><b>:</b>");
+  espClient.print ("<input type='number' class='mc' id='endmin-"+pos+"' min='0' max='59' value='"+(String)rdMin+"'></td>");
+  espClient.print ("<td><input type='number' class='mc' id='red-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].red+"'></td>");
+  espClient.print ("<td><input type='number' class='mc' id='green-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].green+"'></td>");
+  espClient.print ("<td><input type='number' class='mc' id='blue-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].blue+"'></td>");
+  espClient.print ("<td><input type='number' class='mc' id='white-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].white+"'></td>");
+  espClient.print ("<td class='tac'><input type='checkbox' id='active-"+pos+"' " + Check+"></td>");
+  espClient.print ("<td><button type='button' id='save-"+pos+"' class='store btn btn-outline-secondary btn-sm'><i class='far fa-save'></i><td></tr>");
+ 
+  n=2; 
+  pos=(String)n;
+  totMins = runTimes[n].startTime;
+  rdHr=0; rdMin=0;
+  if (totMins > 0){ rdHr = totMins/60; rdMin =totMins-(rdHr*60); }
+  espClient.print ("<tr><td><input type='number' class='mc' id='starthrs-"+pos+"' min='0' max='23' value='"+(String)rdHr+"'><b>:</b>");
+  espClient.print ("<input type='number' class='mc' id='startmin-"+pos+"' min='0' max='59' value='"+(String)rdMin+"'></td>");
+  totMins = runTimes[n].endTime;
+  rdHr=0;
+  rdMin=0;
+  if (totMins > 0){ rdHr = totMins/60; rdMin = totMins-(rdHr*60); }
+  Check="checked";
+  cHk = runTimes[n].active;
+  if (cHk == 0){Check = ""; }
+  espClient.print ("<td><input type='number' class='mc' id='endhrs-"+pos+"' min='0' max='23' value='"+(String)rdHr+"'><b>:</b>");
+  espClient.print ("<input type='number' class='mc' id='endmin-"+pos+"' min='0' max='59' value='"+(String)rdMin+"'></td>");
+  espClient.print ("<td><input type='number' class='mc' id='red-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].red+"'></td>");
+  espClient.print ("<td><input type='number' class='mc' id='green-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].green+"'></td>");
+  espClient.print ("<td><input type='number' class='mc' id='blue-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].blue+"'></td>");
+  espClient.print ("<td><input type='number' class='mc' id='white-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].white+"'></td>");
+  espClient.print ("<td class='tac'><input type='checkbox' id='active-"+pos+"' " + Check+"></td>");
+  espClient.print ("<td><button type='button' id='save-"+pos+"' class='store btn btn-outline-secondary btn-sm'><i class='far fa-save'></i><td></tr>");
+
+  espClient.print ("<tr><th colspan='9'<div id='w' class='alert alert-info' role='alert'>Set timer details and save.</div></th></tr>");
+  espClient.print ("</table>");
+  espClient.print ("");
+  espClient.print ("<div id='footer' ><button type='button' id='main' class='btn btn-outline-secondary btn-sm'><i class='fas fa-sliders-h'></i>&nbsp;Colour control</button>");
+  espClient.print ("<span>&nbsp;Version: " + version + "</span></div></div>");
+  espClient.print ("<script src='https://code.jquery.com/jquery-3.2.1.min.js'></script><script src='https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js' ></script><script src='https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js'></script>");
+  espClient.print ("<script src='https://cdnjs.cloudflare.com/ajax/libs/spectrum/1.8.0/spectrum.min.js'></script>");
+  espClient.print ("<script>");
+  espClient.println ("$(document).ready(function($) {");
+  espClient.println ("  $('#main').click(function(){");
+  espClient.println ("      window.location.href ='http://"+ipStr+"/';");
+  espClient.println ("  });");
+  espClient.println ("  $('.mc').change(function(){");
+  espClient.println ("     var ck = parseInt($(this).attr('max'));");
+  espClient.println ("     if (parseInt($(this).val())<0){$(this).val(0);} ");
+  espClient.println ("     if (parseInt($(this).val())>ck){$(this).val(ck);} ");
+  espClient.println ("  });");
+  espClient.println ("  $('.store').click(function(){");
+  espClient.println ("     var per= $(this).attr('id').split('-');"); // id of btn
+  espClient.println ("     var startmin=parseInt($('#starthrs-'+per[1]).val()) * 60 + parseInt($('#startmin-'+per[1]).val());");
+  espClient.println ("     var endmin=parseInt($('#endhrs-'+per[1]).val()) * 60 + parseInt($('#endmin-'+per[1]).val());");
+  espClient.println ("     if (endmin == startmin) { alert ('Start time must be different from end time.'); return false; }    ");
+  espClient.println ("     $('#w').html('Please wait until action has finished.');");
+  espClient.println ("     $.get({url:'/api/command/timedat/',"); // send the request using AJAX
+  espClient.println ("       dataType:'json',");
+  espClient.println ("       data    :{id:per[1],stMin:startmin, endMin:endmin,act:($('#active-'+per[1]+':checked').val()=='on'?1:0),");
+  espClient.println ("                 red:$('#red-'+per[1]).val(),green:$('#green-'+per[1]).val(),blue:$('#blue-'+per[1]).val(),white:$('#white-'+per[1]).val()},");
+  espClient.println ("        success:function(data){");
+  espClient.println ("           $('#w').html(data.message);");
+  espClient.println ("        }");
+  espClient.println ("    })");
+  espClient.println ("");
+  espClient.println ("  });");
+  espClient.println ("});"); // end jquery
+  espClient.print ("</script></body></html>");
+  espClient.stop(); 
 }
 void initLEDS(){
   ledcSetup(LEDC_CHANNEL_0_R, LEDC_BASE_FREQ, LEDC_TIMER_13_BIT);
@@ -545,8 +713,22 @@ void processRequest(String req, WiFiClient espClient){
         } else if (req.indexOf("/command/wifi") != -1) {
           delay(2000);
           setupMode = true; 
+        } else if  (req.indexOf("/settimers") != -1) {
+          Serial.print("set timers ");
+          setupTimers = true;
+        } else if (req.indexOf("/command/timedat") != -1) {
+          int id = recvVar(req,"/command/timedat","id").toInt();
+          int act = recvVar(req,"/command/timedat","act").toInt();
+          int red = recvVar(req,"/command/timedat","red").toInt();
+          int green = recvVar(req,"/command/timedat","green").toInt();
+          int blue = recvVar(req,"/command/timedat","blue").toInt();
+          int white = recvVar(req,"/command/timedat","white").toInt();
+          int stmin = recvVar(req,"/command/timedat","stMin").toInt();
+          int endmin = recvVar(req,"/command/timedat","endMin").toInt();
+          ledTimer timedat = { id, stmin, endmin, red, green, blue, white, 0, act };
+          write_timer_toEEPROM(timedat);
+          respMsg = "The timer has been saved. Timer id is:" + (String)id;
         }
-        
 }
 void mqtt_reconnect() {
   // Loop until we're reconnected
@@ -574,6 +756,20 @@ void resetTimer(){
       formTime.substring(6,8).toInt()<3 ){
       ESP.restart();
   }  
+}
+String recvVar(String req, String base, String nm){
+   int val_base = req.indexOf(base);
+   int val_id = req.indexOf(nm,val_base);
+   int val_eq = req.indexOf("=",val_id);
+   int val_end = req.indexOf('&',val_eq);
+   if (val_end == -1){
+      val_end = req.indexOf(" ",val_eq);
+   }
+   String dat = req.substring(val_eq+1,val_end);
+   if (dat == ""){ dat ="0"; }
+   Serial.print (nm + ": ");
+   Serial.println(dat);
+   return dat;
 }
 void scanNetworks(){
   Serial.println("scan start");
@@ -701,7 +897,7 @@ void setRGBColor(uint32_t R, uint32_t G, uint32_t B, uint32_t W, bool toEEprom) 
       // the delay can't be too large it would stop the loop
       // 10 is about 2.5 second (255 * 10)
       delay (delayMills);
-      //Serial.println("");
+      
     }
     
   
@@ -870,6 +1066,39 @@ void writeData(uint8_t addr, uint32_t datInt){
        Serial.println("EEPROM "+tcl+" not updated because value "+String(datInt)+" didn't change");
     }  
 }
+
+void write_timer_toEEPROM(ledTimer timedat){
+  uint8_t startAddr = 180;  // = ((timedat.id-1) * 50) + 80;
+  if (timedat.id==0){
+    startAddr = EEtimer1;
+  } else if (timedat.id==1){
+    startAddr = EEtimer2;
+  } else if (timedat.id==2){
+    startAddr = EEtimer3;
+  }
+  
+  EEPROM.put(startAddr, timedat);
+  EEPROM.commit(); 
+  Serial.println("Timer is saved"); 
+  runTimes[timedat.id] = timedat; 
+}
+
+ledTimer read_timer_fromEEPROM(int id){
+  uint8_t startAddr =180; // = ((id-1) * 50) + 80; 
+  if (id==0){
+    startAddr = EEtimer1;
+  } else if (id==1){
+    startAddr = EEtimer2;
+  } else if (id==2){
+    startAddr = EEtimer3;
+  }
+  
+  ledTimer readEE;
+  EEPROM.get(startAddr, readEE);
+  Serial.println("Read timer object with id:" + (String) id +" from EEPROM: ");
+  return readEE;   
+}
+
 void write_wifi_toEEPROM(uint8_t startAddr, String strSSID, String strPW){
   wifiConn vars;
   strSSID.toCharArray(vars.eSsid, sizeof(vars.eSsid));
