@@ -2,7 +2,7 @@
 An RGB(W) control on ESP32 with webinterface and MQTT status replies.
 
 This RGB control can be used with different domotica systems.
-The last set colours is stored in EEprom after a start up, it will return to last colour.
+The last set colours is stored in EEprom after a start up, it will return to last colour. With the timers you can switch off and on and change colours at preset times.
 
 With the few parts you have full IoT control over your RGB devices for less then EUR 15.00
 
@@ -31,6 +31,7 @@ Coming soon
 
 |Date|Version|Description|
 |--|--|--|
+|26th August 2018|0.9.4|Added 3 timers for easy automatic switching|
 |25th August 2018|0.9.3|First fully working version|
 |24th August 2018|0.8.2|Added support for setup by direct AP connection to ESP32 and connect to MQTT|
 |21th August 2018|0.8.1|Added Range sliders in user interface|
@@ -99,6 +100,6 @@ you need to restart the ESP to exit AP mode.
 ![SetUp interface](/RGBW_SetUp.png?raw=true "RGB webinterface") If you don't enter a password and send you need to restart the ESP to exit AP mode.
 If your password is not stored it will go back in AP mode until a valid password/ssid combination is entered.
 
-
+![Timer interface](/RGBW_timers.png?raw=true "RGB webinterface") With timers you can switch the RGB at preselected times. Be sure you have a ntp server for your time area.
 
 Coming soon before 30th August 2018
