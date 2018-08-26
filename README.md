@@ -100,6 +100,6 @@ you need to restart the ESP to exit AP mode.
 ![SetUp interface](/RGBW_SetUp.png?raw=true "RGB webinterface") If you don't enter a password and send you need to restart the ESP to exit AP mode.
 If your password is not stored it will go back in AP mode until a valid password/ssid combination is entered.
 
-![Timer interface](/RGBW_timers.png?raw=true "RGB webinterface") With timers you can switch the RGB at preselected times. Be sure you have a ntp server for your time area.
+![Timer interface](/RGBW_timers.png?raw=true "RGB webinterface") With timers you can switch the RGB at preselected times. Be sure you have a ntp server for your time area. (line 20 main.ino)
 
 Coming soon before 30th August 2018
