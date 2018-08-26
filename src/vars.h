@@ -48,6 +48,7 @@ uint8_t EEwhite =16;
 uint8_t EEtimer1 = 80;
 uint8_t EEtimer2 = 130;
 uint8_t EEtimer3 = 180;
+uint8_t EEtimer4 = 230;
 
 
 uint8_t EEssid = 32;   // eeprom location ssid
@@ -70,7 +71,8 @@ struct ledTimer {
   int active;  //0 = off, 1 = on
 };
 
-ledTimer runTimes[3];
+ledTimer runTimes[5];
+int maxTimers=5;
 bool justOnce = false;
 bool debugPrint = true;
 bool setupMode = false;

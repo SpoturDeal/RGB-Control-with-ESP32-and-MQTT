@@ -38,23 +38,27 @@ void writeData(uint8_t addr, uint32_t datInt);
 
 void setup() {
   // start the EEprom
-  EEPROM.begin(300);
+  EEPROM.begin(640);
   Serial.begin(115200);
-     
+
+//ledTimer timedat;
+//timedat = { 4, 0, 0, 0, 0, 0, 0, 0, 0 };
+//write_timer_toEEPROM(timedat);
   EEPROM.get(EEset,testvar);
   if (testvar -= 1){
     // fill the ssid on eeprom with a fixed nones
     //if not set store dummy data in EEprom
     write_wifi_toEEPROM(EEssid, "nonessid", "nonepassword");
     writeData(EEset,1);
+    //Dummy data timers
     ledTimer timedat;
-    for (int i=0; i<=2; i++){
+    for (int i = 0; i < maxTimers; i++){
       timedat = { i, 0, 0, 0, 0, 0, 0, 0, 0 };
       write_timer_toEEPROM(timedat);
     }
   }
   // load the timers
-  for (int i=0; i<=2; i++){
+  for (int i = 0; i < maxTimers; i++){
      runTimes[i] = read_timer_fromEEPROM(i);
   }
   // if no ssid and password in credentials.h then check eeprom
@@ -92,7 +96,7 @@ void setup() {
   } 
   // in setMode we need different important parts
   scanNetworks();
-  if (setupMode==false){
+  if (setupMode == false){
     setupOTA();
     // Setup and start MQTT
     mqttClient.setServer(ip_MQTT, port_MQTT);
@@ -136,18 +140,20 @@ void loop() {
   resetTimer();
   int currMinute = timeClient.getHours() * 60 + timeClient.getMinutes();
   // check if a timer needs to be activated
-  for (int tmCheck=0;tmCheck<3;tmCheck++){
+  for (int tmCheck = 0; tmCheck < maxTimers; tmCheck++){
      if (runTimes[tmCheck].active == 1 ){
         if (runTimes[tmCheck].startTime == currMinute && runTimes[tmCheck].status == 0 ){
             // set the requested colour
             setRGBColor(runTimes[tmCheck].red,runTimes[tmCheck].green,runTimes[tmCheck].blue,runTimes[tmCheck].white,true);
             // set the status to 1 to prevent multiple start in the minute
             runTimes[tmCheck].status=1;
+            write_timer_toEEPROM(runTimes[tmCheck]);
             
         } else if (runTimes[tmCheck].endTime == currMinute && runTimes[tmCheck].status == 1 ){
             setRGBColor(0,0,0,0,false);
              // set the status to 0 to prevent multiple sops in the minute
-            runTimes[tmCheck].status=1;
+            runTimes[tmCheck].status=0;
+            write_timer_toEEPROM(runTimes[tmCheck]);
         }  
      }
   }
@@ -244,14 +250,14 @@ String getValue(String req) {
      val_end   = req.indexOf(' ',val_start);
   }
   if (val_start == -1 || val_end == -1) {
-     if (debugPrint ==true){
+     if (debugPrint == true){
         Serial.print("Invalid request: ");
         Serial.println(req);
      }
      return("");
   }
   req = req.substring(val_start + 1, val_end);
-  if (debugPrint ==true){
+  if (debugPrint == true){
      Serial.print("Requested color: ");
      Serial.println(req);
   }
@@ -281,7 +287,7 @@ void interfaceUser(WiFiClient espClient) {
   espClient.print ("<link rel='stylesheet' href='https://cdnjs.cloudflare.com/ajax/libs/spectrum/1.8.0/spectrum.min.css'>");
   espClient.print ("<script defer src='https://use.fontawesome.com/releases/v5.0.9/js/all.js'></script>");
   espClient.print ("</head>");
-  espClient.print ("<body><div id='container'><h1>RGB(W) control with WiFi</h1>");
+  espClient.print ("<body><div id='container'><h1>RGBw control with WiFi</h1>");
   espClient.print ("<button type='button' class='btn btn-success btn myBtn' style='display:none;' id='led-on'><i class='far fa-lightbulb fa-2x'></i>Switch On</button>");
   espClient.print ("<button type='button' class='btn btn-secondary btn myBtn' style='display:none;' id='led-off'><i class='fas fa-lightbulb fa-2x'></i>Switch Off</button><br>");
   espClient.print ("<div>Move slider to change colour</div>");
@@ -359,7 +365,7 @@ void interfaceSetUp(WiFiClient espClient){
   espClient.print ("<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0'><meta charset='utf-8'>");
   espClient.print ("<style>#map {height: 100%;} html, body {height: 100%; margin: 25px; padding: 10px; font-family: Sans-Serif;} #container{max-width:600px;} button, input, select {margin:15px 0px} #footer{position: absolute;bottom: 0;}</style>");
   espClient.print ("</head>");
-  espClient.print ("<body><div id='container'><h1>RGB(W) control setup WiFi</h1>");
+  espClient.print ("<body><div id='container'><h1>RGBw control setup WiFi</h1>");
   espClient.print ("<div>Select your Wifi Station<br>");
   espClient.print (cmdSSID);  // this are the scanned networks in a html select
   espClient.print ("</div><div>Password<br><input type='text' id='pasw' maxlength='16' ><br /><br />");
@@ -386,12 +392,6 @@ void interfaceSetUp(WiFiClient espClient){
   espClient.stop();
 }
 void interfaceTimers(WiFiClient espClient){
-  int totMins;
-  int rdHr;
-  int rdMin;
-  int cHk;
-  String Check;
-  String pos;
   espClient.print ("<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0'><meta charset='utf-8'>");
   espClient.print ("<style>#map {height: 100%;} html, body {height: 100%; margin: 25px; padding: 10px;font-family: Sans-Serif;}");
   espClient.print ("#container{max-width:600px;} #footer{position: absolute;bottom: 0;} tr th, .tac{text-align:center;}");
@@ -400,80 +400,19 @@ void interfaceTimers(WiFiClient espClient){
   espClient.print ("<link rel='stylesheet' href='https://cdnjs.cloudflare.com/ajax/libs/spectrum/1.8.0/spectrum.min.css'>");
   espClient.print ("<script defer src='https://use.fontawesome.com/releases/v5.0.9/js/all.js'></script>");
   espClient.print ("</head>");
-  espClient.print ("<body><div id='container'><h1>RGB(W) Timers</h1>");
-  espClient.print ("<div><table><tr><th colspan='2'>Time</th><th colspan='4'>Colour</th><th></th><th></th><th></tr>");
-  espClient.print ("<tr><th>Start</th><th>End</th><th>Red</th><th>Green</th><th>Blue</th><th>White</th><th>Active</th><th>Save</th><th></th></tr>");
+  espClient.print ("<body><div id='container'><h1>RGBw Timers</h1>");
+  espClient.print ("<div><table><tr><th colspan='2'></th><th colspan='4'>Colour</th><th></th><th></th><th></tr>");
+  espClient.print ("<tr><th>Start-time</th><th>End-time</th><th>Red</th><th>Green</th><th>Blue</th><th>White</th><th>Active</th><th>Save</th><th></th></tr>");
   // for some silly reason the for loop fails
-  //for (int =1; n<4; n++){
-  int n=0; 
-  pos=(String)n;
-  totMins = runTimes[n].startTime;
-  rdHr=0; rdMin=0;
-  if (totMins > 0){ rdHr = totMins/60; rdMin =totMins-(rdHr*60); }
-  espClient.print ("<tr><td><input type='number' class='mc' id='starthrs-"+pos+"' min='0' max='23' value='"+(String)rdHr+"'><b>:</b>");
-  espClient.print ("<input type='number' class='mc' id='startmin-"+pos+"' min='0' max='59' value='"+(String)rdMin+"'></td>");
-  totMins = runTimes[n].endTime;
-  rdHr=0;
-  rdMin=0;
-  if (totMins > 0){ rdHr = totMins/60; rdMin = totMins-(rdHr*60); }
-  Check="checked";
-  cHk = runTimes[n].active;
-  if (cHk == 0){Check = ""; }
-  espClient.print ("<td><input type='number' class='mc' id='endhrs-"+pos+"' min='0' max='23' value='"+(String)rdHr+"'><b>:</b>");
-  espClient.print ("<input type='number' class='mc' id='endmin-"+pos+"' min='0' max='59' value='"+(String)rdMin+"'></td>");
-  espClient.print ("<td><input type='number' class='mc' id='red-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].red+"'></td>");
-  espClient.print ("<td><input type='number' class='mc' id='green-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].green+"'></td>");
-  espClient.print ("<td><input type='number' class='mc' id='blue-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].blue+"'></td>");
-  espClient.print ("<td><input type='number' class='mc' id='white-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].white+"'></td>");
-  espClient.print ("<td class='tac'><input type='checkbox' id='active-"+pos+"' " + Check+"></td>");
-  espClient.print ("<td><button type='button' id='save-"+pos+"' class='store btn btn-outline-secondary btn-sm'><i class='far fa-save'></i><td></tr>");
-
-  n=1; 
-  pos=(String)n;
-  totMins = runTimes[n].startTime;
-  rdHr=0; rdMin=0;
-  if (totMins > 0){ rdHr = totMins/60; rdMin =totMins-(rdHr*60); }
-  espClient.print ("<tr><td><input type='number' class='mc' id='starthrs-"+pos+"' min='0' max='23' value='"+(String)rdHr+"'><b>:</b>");
-  espClient.print ("<input type='number' class='mc' id='startmin-"+pos+"' min='0' max='59' value='"+(String)rdMin+"'></td>");
-  totMins = runTimes[n].endTime;
-  rdHr=0;
-  rdMin=0;
-  if (totMins > 0){ rdHr = totMins/60; rdMin = totMins-(rdHr*60); }
-  Check="checked";
-  cHk = runTimes[n].active;
-  if (cHk == 0){Check = ""; }
-  espClient.print ("<td><input type='number' class='mc' id='endhrs-"+pos+"' min='0' max='23' value='"+(String)rdHr+"'><b>:</b>");
-  espClient.print ("<input type='number' class='mc' id='endmin-"+pos+"' min='0' max='59' value='"+(String)rdMin+"'></td>");
-  espClient.print ("<td><input type='number' class='mc' id='red-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].red+"'></td>");
-  espClient.print ("<td><input type='number' class='mc' id='green-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].green+"'></td>");
-  espClient.print ("<td><input type='number' class='mc' id='blue-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].blue+"'></td>");
-  espClient.print ("<td><input type='number' class='mc' id='white-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].white+"'></td>");
-  espClient.print ("<td class='tac'><input type='checkbox' id='active-"+pos+"' " + Check+"></td>");
-  espClient.print ("<td><button type='button' id='save-"+pos+"' class='store btn btn-outline-secondary btn-sm'><i class='far fa-save'></i><td></tr>");
- 
-  n=2; 
-  pos=(String)n;
-  totMins = runTimes[n].startTime;
-  rdHr=0; rdMin=0;
-  if (totMins > 0){ rdHr = totMins/60; rdMin =totMins-(rdHr*60); }
-  espClient.print ("<tr><td><input type='number' class='mc' id='starthrs-"+pos+"' min='0' max='23' value='"+(String)rdHr+"'><b>:</b>");
-  espClient.print ("<input type='number' class='mc' id='startmin-"+pos+"' min='0' max='59' value='"+(String)rdMin+"'></td>");
-  totMins = runTimes[n].endTime;
-  rdHr=0;
-  rdMin=0;
-  if (totMins > 0){ rdHr = totMins/60; rdMin = totMins-(rdHr*60); }
-  Check="checked";
-  cHk = runTimes[n].active;
-  if (cHk == 0){Check = ""; }
-  espClient.print ("<td><input type='number' class='mc' id='endhrs-"+pos+"' min='0' max='23' value='"+(String)rdHr+"'><b>:</b>");
-  espClient.print ("<input type='number' class='mc' id='endmin-"+pos+"' min='0' max='59' value='"+(String)rdMin+"'></td>");
-  espClient.print ("<td><input type='number' class='mc' id='red-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].red+"'></td>");
-  espClient.print ("<td><input type='number' class='mc' id='green-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].green+"'></td>");
-  espClient.print ("<td><input type='number' class='mc' id='blue-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].blue+"'></td>");
-  espClient.print ("<td><input type='number' class='mc' id='white-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].white+"'></td>");
-  espClient.print ("<td class='tac'><input type='checkbox' id='active-"+pos+"' " + Check+"></td>");
-  espClient.print ("<td><button type='button' id='save-"+pos+"' class='store btn btn-outline-secondary btn-sm'><i class='far fa-save'></i><td></tr>");
-
+  
+  for (int n = 0; n < maxTimers; n++){
+  interfaceTimerRow(espClient,n);
+  }
+  //interfaceTimerRow(espClient,1);
+  //interfaceTimerRow(espClient,2);
+  //interfaceTimerRow(espClient,3);
+  //interfaceTimerRow(espClient,4);
+  
   espClient.print ("<tr><th colspan='9'<div id='w' class='alert alert-info' role='alert'>Set timer details and save.</div></th></tr>");
   espClient.print ("</table>");
   espClient.print ("");
@@ -482,7 +421,7 @@ void interfaceTimers(WiFiClient espClient){
   espClient.print ("<script src='https://code.jquery.com/jquery-3.2.1.min.js'></script><script src='https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js' ></script><script src='https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js'></script>");
   espClient.print ("<script src='https://cdnjs.cloudflare.com/ajax/libs/spectrum/1.8.0/spectrum.min.js'></script>");
   espClient.print ("<script>");
-  espClient.println ("$(document).ready(function($) {");
+  espClient.println ("$(document).ready(function($) {");  // jquery
   espClient.println ("  $('#main').click(function(){");
   espClient.println ("      window.location.href ='http://"+ipStr+"/';");
   espClient.println ("  });");
@@ -510,6 +449,35 @@ void interfaceTimers(WiFiClient espClient){
   espClient.println ("});"); // end jquery
   espClient.print ("</script></body></html>");
   espClient.stop(); 
+}
+void interfaceTimerRow(WiFiClient espClient,int n){
+  int totMins;
+  int rdHr;
+  int rdMin;
+  int cHk;
+  String Check;
+  String pos; 
+  pos=(String)n;
+  totMins = runTimes[n].startTime;
+  rdHr=0; rdMin=0;
+  if (totMins > 0){ rdHr = totMins/60; rdMin =totMins-(rdHr*60); }
+  espClient.print ("<tr><td><input type='number' class='mc' id='starthrs-"+pos+"' min='0' max='23' value='"+(String)rdHr+"'><b>:</b>");
+  espClient.print ("<input type='number' class='mc' id='startmin-"+pos+"' min='0' max='59' value='"+(String)rdMin+"'></td>");
+  totMins = runTimes[n].endTime;
+  rdHr=0;
+  rdMin=0;
+  if (totMins > 0){ rdHr = totMins/60; rdMin = totMins-(rdHr*60); }
+  Check="checked";
+  cHk = runTimes[n].active;
+  if (cHk == 0){Check = ""; }
+  espClient.print ("<td><input type='number' class='mc' id='endhrs-"+pos+"' min='0' max='23' value='"+(String)rdHr+"'><b>:</b>");
+  espClient.print ("<input type='number' class='mc' id='endmin-"+pos+"' min='0' max='59' value='"+(String)rdMin+"'></td>");
+  espClient.print ("<td><input type='number' class='mc' id='red-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].red+"'></td>");
+  espClient.print ("<td><input type='number' class='mc' id='green-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].green+"'></td>");
+  espClient.print ("<td><input type='number' class='mc' id='blue-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].blue+"'></td>");
+  espClient.print ("<td><input type='number' class='mc' id='white-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].white+"'></td>");
+  espClient.print ("<td class='tac'><input type='checkbox' id='active-"+pos+"' " + Check+"></td>");
+  espClient.print ("<td><button type='button' id='save-"+pos+"' class='store btn btn-outline-secondary btn-sm'><i class='far fa-save'></i><td></tr>");
 }
 void initLEDS(){
   ledcSetup(LEDC_CHANNEL_0_R, LEDC_BASE_FREQ, LEDC_TIMER_13_BIT);
@@ -766,7 +734,7 @@ String recvVar(String req, String base, String nm){
       val_end = req.indexOf(" ",val_eq);
    }
    String dat = req.substring(val_eq+1,val_end);
-   if (dat == ""){ dat ="0"; }
+   if (  dat == ""){ dat ="0"; }
    Serial.print (nm + ": ");
    Serial.println(dat);
    return dat;
@@ -822,7 +790,7 @@ void setOneColour(uint32_t V, String Clr ){
     int currTemp = currWhite;
     int Channel = LEDC_CHANNEL_3_W;
     // set the proper pin and current colour
-    if (Clr == "red"){
+    if ( Clr == "red"){
        Pin = LED_PIN_R; 
        currTemp = currRed;
        Channel = LEDC_CHANNEL_0_R; 
@@ -983,7 +951,7 @@ String urldecode(String str){
     char code1;
     for (int i =0; i < str.length(); i++){
         c=str.charAt(i);
-      if (c == '+'){
+      if ( c == '+'){
         encodedString+=' ';  
       }else if (c == '%') {
         i++;
@@ -1066,15 +1034,16 @@ void writeData(uint8_t addr, uint32_t datInt){
        Serial.println("EEPROM "+tcl+" not updated because value "+String(datInt)+" didn't change");
     }  
 }
-
 void write_timer_toEEPROM(ledTimer timedat){
-  uint8_t startAddr = 180;  // = ((timedat.id-1) * 50) + 80;
+  uint8_t startAddr = EEtimer4;
   if (timedat.id==0){
     startAddr = EEtimer1;
   } else if (timedat.id==1){
     startAddr = EEtimer2;
   } else if (timedat.id==2){
     startAddr = EEtimer3;
+  } else if (timedat.id==3){
+    startAddr = EEtimer4;
   }
   
   EEPROM.put(startAddr, timedat);
@@ -1082,15 +1051,16 @@ void write_timer_toEEPROM(ledTimer timedat){
   Serial.println("Timer is saved"); 
   runTimes[timedat.id] = timedat; 
 }
-
 ledTimer read_timer_fromEEPROM(int id){
-  uint8_t startAddr =180; // = ((id-1) * 50) + 80; 
+  uint8_t startAddr = EEtimer4;  
   if (id==0){
     startAddr = EEtimer1;
   } else if (id==1){
     startAddr = EEtimer2;
   } else if (id==2){
     startAddr = EEtimer3;
+  } else if (id==3){
+    startAddr = EEtimer4;
   }
   
   ledTimer readEE;
@@ -1098,7 +1068,6 @@ ledTimer read_timer_fromEEPROM(int id){
   Serial.println("Read timer object with id:" + (String) id +" from EEPROM: ");
   return readEE;   
 }
-
 void write_wifi_toEEPROM(uint8_t startAddr, String strSSID, String strPW){
   wifiConn vars;
   strSSID.toCharArray(vars.eSsid, sizeof(vars.eSsid));
