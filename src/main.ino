@@ -216,9 +216,7 @@ void loop() {
             // a request gives just a reply
             if (setupTimers == false){
               espClient.print(s);
-            } else {
-              //interfaceTimers(espClient);
-            }
+            } 
         } 
         espClient.stop();
         delay(1);
@@ -229,18 +227,40 @@ void loop() {
   delay(1000);
 }
 void callback(char* topic, byte* payload, unsigned int length) {
- 
-  Serial.print("Message arrived in topic: ");
+    
+  Serial.println("-------new message from broker-----");
+  Serial.print("channel:");
   Serial.println(topic);
- 
-  Serial.print("Message:");
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
+  Serial.print("data:");  
+  Serial.write(payload, length);
+  Serial.println();
+  StaticJsonBuffer<500> jsonBuffer;
+  JsonObject& message = jsonBuffer.parseObject((char *)payload);
+  
+  if (!message.success()) {
+    Serial.println("JSON parse failed");  
+    return;
+  }
+  JsonArray& colours=message["payload"]["colours"];
+  
+
+  if (colours.size() > 0){
+     int tRed=colours[0]["red"];
+     int tGreen=colours[0]["green"];
+     int tBlue = colours[0]["blue"];
+     int tWhite = colours[0]["white"];
+     setRGBColor(tRed,tGreen,tBlue,tWhite,true);
+  } else {
+    Serial.print("Message:");
+    for (int i = 0; i < length; i++) {
+      Serial.print((char)payload[i]);
+    }
+    Serial.println();
+    Serial.println("-----------------------");
   }
  
-  Serial.println();
-  Serial.println("-----------------------");
  
+  
 }
 String getValue(String req) {
 
