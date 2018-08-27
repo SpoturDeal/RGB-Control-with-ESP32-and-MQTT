@@ -23,6 +23,8 @@ PowerSupply(1):  5 Volt <a href="https://www.banggood.com/3Pcs-DC-DC-4_5-40V-Ste
  
 PowerSupply(2): 12 Volt <a href="https://www.banggood.com/AC-100-240V-to-DC-12V-5A-60W-Power-Supply-Adapter-For-LED-Strip-Light-p-994870.html?p=VQ141018240205201801">Available at Banggood</a>
 
+4x MosFet IRFZ44n <a heref="https://www.banggood.com/5Pcs-IRFZ44N-Transistor-N-Channel-International-Rectifier-Power-Mosfet-p-953278.html?p=VQ141018240205201801">Available at Banggood</a>
+
 ## Schematics
 |Led||GPIO|
 |--|--|--|
