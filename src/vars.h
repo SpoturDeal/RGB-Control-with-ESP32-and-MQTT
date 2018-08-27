@@ -13,7 +13,7 @@ String cmdSSID;
 String formTime;
 String ipStr;
 int counter = 5;
-String version ="0.9.4";
+String version ="0.9.5";
 
 // For LEDS
 #define LEDC_CHANNEL_0_R  0
@@ -49,6 +49,7 @@ uint8_t EEtimer1 = 80;
 uint8_t EEtimer2 = 130;
 uint8_t EEtimer3 = 180;
 uint8_t EEtimer4 = 230;
+uint8_t EEtimer5 = 250;
 
 
 uint8_t EEssid = 32;   // eeprom location ssid
