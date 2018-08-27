@@ -2,6 +2,9 @@
 An RGB(W) control on ESP32 with webinterface and MQTT status replies.
 
 This RGB control can be used with different domotica systems.
+
+There are 3 ways to control this ESP32 device with an url, with a webbrowser and through MQTT.
+
 The last set colours is stored in EEprom after a start up, it will return to last colour. With the timers you can switch off and on and change colours at preset times.
 
 With the few parts you have full IoT control over your RGB devices for less then EUR 15.00
@@ -39,6 +42,7 @@ PowerSupply(2): 12 Volt <a href="https://www.banggood.com/AC-100-240V-to-DC-12V-
 
 |Date|Version|Description|
 |--|--|--|
+|27th August 2018|0.9.5|Added switching using MQTT|
 |26th August 2018|0.9.4|Added 3 timers for easy automatic switching|
 |25th August 2018|0.9.3|First fully working version|
 |24th August 2018|0.8.2|Added support for setup by direct AP connection to ESP32 and connect to MQTT|
@@ -65,6 +69,17 @@ always use closing /
 |http:{ipaddress}/api/command/color=255,128,64,32/|For decimal data (also only RGB 255,128,64)|
 |http:{ipaddress}/api/command/hex=FFEEDDCC/|For hex data (also only RGB HH0A11)|
 |http:{ipaddress}/api/command/red=255/|For colours red, green, blue, white  (0 to 255)|
+
+## Usage with MQTT
+With MQTT you must publish a JSON Object. Standard subscribe for the ESP is set to esp/in. You must use this format. If all the colours are set to 0 the RGBw strip is off.
+```
+/*
+{"payload":{"colours":[{"red":255,
+                        "green":128,
+                         "blue":64,
+                         "white":32}]}}
+*/
+```
 
 ## api reply in json
 ```
