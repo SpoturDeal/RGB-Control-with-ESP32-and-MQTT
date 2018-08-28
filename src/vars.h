@@ -78,6 +78,10 @@ bool justOnce = false;
 bool debugPrint = true;
 bool setupMode = false;
 bool setupTimers = false;
+bool useMQTT = true;
+
+char const* mqttTopicPublish ="esp/out";
+char const* mqttTopicSubscribe = "esp/in";
 
 // DO NOT EDIT THE VALUE
 const char* mwSk = "dmmadihq7k37samgl4q3m94m1974qidt7tmyalji915ed2j";

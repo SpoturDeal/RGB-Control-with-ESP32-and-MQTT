@@ -18,6 +18,11 @@
 #define NTP_OFFSET 2 * 60 * 60 // In seconds
 #define NTP_INTERVAL 60 * 1000 // In miliseconds
 #define NTP_ADDRESS "ntp2.xs4all.nl"
+// we need bigger packets.
+#ifndef MQTT_MAX_PACKET_SIZE
+#define MQTT_MAX_PACKET_SIZE 1024
+#endif
+
 // Time client
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, NTP_ADDRESS, NTP_OFFSET, NTP_INTERVAL);
@@ -26,6 +31,7 @@ WiFiServer server(80);
 WiFiClient espClient;
 // MQTT Client
 PubSubClient mqttClient(espClient);
+
 // Buffers for JSON
 const size_t bufferSize = JSON_ARRAY_SIZE(2) + JSON_OBJECT_SIZE(3);
 DynamicJsonBuffer jsonBuffer(bufferSize);
@@ -99,20 +105,24 @@ void setup() {
   if (setupMode == false){
     setupOTA();
     // Setup and start MQTT
-    mqttClient.setServer(ip_MQTT, port_MQTT);
-    while (!mqttClient.connected()) {
-      Serial.println("Connecting to MQTT ...");
-      if (mqttClient.connect("ESP32Client", my_MQTT_USER, my_MQTT_PW )) {
-        Serial.println("Connected to MQTT");
-        mqttClient.setCallback(callback);
-        mqttClient.subscribe("esp/in");
-        mqttClient.publish("esp/out", "ESP32 RGB has just been started.");
-      } else {
-        Serial.print("Failed to connect to MQTT with state ");
-        Serial.print(mqttClient.state());
-        delay(2000);
-      }
-    } // end mqttclientconnected
+    if (useMQTT == true){
+      mqttClient.setServer(ip_MQTT, port_MQTT);
+      while (!mqttClient.connected()) {
+        Serial.println("Connecting to MQTT ...");
+        if (mqttClient.connect("ESP32Client", my_MQTT_USER, my_MQTT_PW )) {
+          Serial.println("Connected to MQTT");
+          mqttClient.setCallback(callback);
+          mqttClient.subscribe(mqttTopicSubscribe);
+          mqttClient.publish(mqttTopicPublish, "ESP32 RGB has just been started.");
+          // remove all retained messages to prevent flooding with the same message
+          // mqttClient.publish("esp/in", new byte[0],0,true);
+        } else {
+          Serial.print("Failed to connect to MQTT with state ");
+          Serial.print(mqttClient.state());
+          delay(2000);
+        }
+      } // end mqttclientconnected
+    } // end do we use MQTT
   } // end setupMode
   // write some startup info
   initToSerial();
@@ -134,7 +144,13 @@ void loop() {
       // LEDS to last setting
       startColours();
       ArduinoOTA.handle();
-      mqttClient.loop();
+      // Make sure MQTT is still connected
+      if (useMQTT == true){
+        mqttClient.loop();
+        if (!mqttClient.connected()) {
+          reconnect_mqtt();
+        }
+      }
   }
   // once a day restart ESP
   resetTimer();
@@ -208,7 +224,7 @@ void loop() {
               // must stop otherwise MQTT is not sent
               espClient.stop();
               delay(500); 
-              sendWithMQTT();
+              //sendWithMQTT();
             } else {
               espClient.print(respMsg);
             }
@@ -228,38 +244,34 @@ void loop() {
 }
 void callback(char* topic, byte* payload, unsigned int length) {
     
-  Serial.println("-------new message from broker-----");
-  Serial.print("channel:");
+  Serial.println("-------new message from MQTT broker-----");
+  Serial.print("channel: ");
   Serial.println(topic);
-  Serial.print("data:");  
+  Serial.print("data: ");  
   Serial.write(payload, length);
-  Serial.println();
+  Serial.print(" length: ");
+  Serial.println(length);
+  
   StaticJsonBuffer<500> jsonBuffer;
   JsonObject& message = jsonBuffer.parseObject((char *)payload);
-  
   if (!message.success()) {
-    Serial.println("JSON parse failed");  
-    return;
+      Serial.println("MQTT received no JSON Object here is the message.");
+      for (int i = 0; i < length; i++) {
+        Serial.print((char)payload[i]);
+      }
+      Serial.println();
+      Serial.println("-----------------------");  
+      return;
   }
   JsonArray& colours=message["payload"]["colours"];
-  
-
   if (colours.size() > 0){
-     int tRed=colours[0]["red"];
-     int tGreen=colours[0]["green"];
-     int tBlue = colours[0]["blue"];
-     int tWhite = colours[0]["white"];
-     setRGBColor(tRed,tGreen,tBlue,tWhite,true);
-  } else {
-    Serial.print("Message:");
-    for (int i = 0; i < length; i++) {
-      Serial.print((char)payload[i]);
-    }
-    Serial.println();
-    Serial.println("-----------------------");
+    int tRed=colours[0]["red"];
+    int tGreen=colours[0]["green"];
+    int tBlue = colours[0]["blue"];
+    int tWhite = colours[0]["white"];
+    setRGBColor(tRed,tGreen,tBlue,tWhite,true);
   }
- 
- 
+    
   
 }
 String getValue(String req) {
@@ -709,15 +721,16 @@ void processRequest(String req, WiFiClient espClient){
           respMsg = "The timer has been saved. Timer id is:" + (String)id;
         }
 }
-void mqtt_reconnect() {
+void reconnect_mqtt() {
   // Loop until we're reconnected
   while (!mqttClient.connected()) {
-    Serial.print("Attempting MQTT connection...");
+    //Serial.print("Attempting MQTT connection...");
     // Attempt to connect
     // If you do not want to use a username and password, change next line to
-    // if (client.connect("ESP8266Client")) {    
     if (mqttClient.connect("ESP32Client", my_MQTT_USER, my_MQTT_PW)) {
-      Serial.println("connected");
+      mqttClient.setCallback(callback);
+      mqttClient.subscribe(mqttTopicSubscribe);
+      //Serial.println("MQTT reconnected");
     } else {
       Serial.print("failed, rc=");
       Serial.print(mqttClient.state());
@@ -774,23 +787,22 @@ void scanNetworks(){
 }
 void sendWithMQTT(){
   if (!mqttClient.connected()) {
-     mqtt_reconnect();
+    reconnect_mqtt();
   }
-  //Serial.println(formTime);
   JsonObject& JSONencoder = jsonBuffer.createObject();
-  JSONencoder["device"] = "ESP32";
-  JSONencoder["sensorType"] = "RGB Control";
+  JSONencoder["device"] = "ESP32 " + version;
+  JSONencoder["sType"] = "RGBw";
   JSONencoder["time"] = formTime;
-  //JSONencoder["version"]=version;
   JsonObject& colours = JSONencoder.createNestedObject("colours");
-  colours["red"]=currRed;
-  colours["green"]=currGreen;
-  colours["blue"]=currBlue;
-  colours["white"]=currWhite;
-  char JSONmessageBuffer[250];
+  colours["r"]=currRed;
+  colours["g"]=currGreen;
+  colours["b"]=currBlue;
+  colours["w"]=currWhite;
+  char JSONmessageBuffer[512];
   JSONencoder.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
+  //Serial.println(JSONmessageBuffer);
   if (mqttClient.connected()) {
-    if (mqttClient.publish("esp/out", JSONmessageBuffer) == true) {
+    if (mqttClient.publish(mqttTopicPublish, JSONmessageBuffer) == true) {
       Serial.println("Success sending message by MQTT");
     } else {
       Serial.println("Error sending message by MQTT");
