@@ -35,27 +35,49 @@ PubSubClient mqttClient(espClient);
 // Buffers for JSON
 const size_t bufferSize = JSON_ARRAY_SIZE(2) + JSON_OBJECT_SIZE(3);
 DynamicJsonBuffer jsonBuffer(bufferSize);
-//declare functions for C/C++
-void setRGBColor(uint32_t R, uint32_t G, uint32_t B, uint32_t W, bool toEEprom);
-void setOneColour(uint32_t V, String Clr );
-String getValue(String req);
-void writeData(uint8_t addr, uint32_t datInt);
 
+//declare functions for C/C++
+void callback(char* topic, byte* payload, unsigned int length);
+colourObj fillColourObj(int red, int green, int blue, int white);
+String getValue(String req);
+unsigned char h2int(char c);
+void initLEDS();
+void initToSerial();
+void interfaceUser(WiFiClient espClient);
+void interfaceSetUp(WiFiClient espClient);
+void interfaceTimers(WiFiClient espClient);
+void interfaceTimerRow(WiFiClient espClient,int n);
+void ledcAnalogWrite(uint8_t channel, uint32_t value, uint32_t valueMax = 255);
+uint32_t min(uint32_t num1, uint32_t num2);
+void processRequest(String req, WiFiClient espClient);
+void publishToMQTT();
+void reconnect_mqtt();
+String recvVar(String req, String base, String nm);
+void resetTimer();
+void scanNetworks();
+void setOneColour(uint32_t V, String Clr );
+void setRGBColor(colourObj rC, bool toEEprom);
+void setupOTA();
+void startColours();
+bool testRecvVal(int rVal);
+String urldecode(String str);
+String urlencode(String str);
+void writeData(uint8_t addr, uint32_t datInt);
+void write_timer_toEEPROM(ledTimer timedat);
+ledTimer read_timer_fromEEPROM(int id);
+void write_wifi_toEEPROM(uint8_t startAddr, String strSSID, String strPW);
+wifiConn read_wifi_fromEEPROM(uint8_t startAddr);
 
 void setup() {
   // start the EEprom
   EEPROM.begin(640);
   Serial.begin(115200);
-
-//ledTimer timedat;
-//timedat = { 4, 0, 0, 0, 0, 0, 0, 0, 0 };
-//write_timer_toEEPROM(timedat);
   EEPROM.get(EEset,testvar);
   if (testvar -= 1){
     // fill the ssid on eeprom with a fixed nones
     //if not set store dummy data in EEprom
     write_wifi_toEEPROM(EEssid, "nonessid", "nonepassword");
-    writeData(EEset,1);
+    writeData(EEset,1);  // is only set one time
     //Dummy data timers
     ledTimer timedat;
     for (int i = 0; i < maxTimers; i++){
@@ -72,13 +94,12 @@ void setup() {
       //if was set then read the data 
       wifiConn staConn = read_wifi_fromEEPROM(EEssid);
       //use the data from EEprom if it is not nones
-      if (staConn.eSsid != "nonessid"){ 
+      if ( strcmp(staConn.eSsid,"nonessid") !=0 ){
         ssid = staConn.eSsid; 
       }
-      if (staConn.ePasw != "nonepassword") { 
+      if ( strcmp(staConn.ePasw, "nonepassword") != 0) { 
         password = staConn.ePasw; 
       }
-    
   }
   // Start WiFi depending on mode
   // Start Access point if ssid is not set
@@ -104,11 +125,11 @@ void setup() {
   scanNetworks();
   if (setupMode == false){
     setupOTA();
-    // Setup and start MQTT
+    // Setup and start MQTT is useMQTT in vars.h is true
     if (useMQTT == true){
       mqttClient.setServer(ip_MQTT, port_MQTT);
       while (!mqttClient.connected()) {
-        Serial.println("Connecting to MQTT ...");
+        Serial.print("Connecting to MQTT ... ");
         if (mqttClient.connect("ESP32Client", my_MQTT_USER, my_MQTT_PW )) {
           Serial.println("Connected to MQTT");
           mqttClient.setCallback(callback);
@@ -133,7 +154,7 @@ void setup() {
   timeClient.begin();
   // setup pins for LEDS
   initLEDS();
- 
+  // make an url/ip string that we understand for userface redirects
   IPAddress myIP = WiFi.localIP();
   ipStr = String(myIP[0])+"."+String(myIP[1])+"."+String(myIP[2])+"."+String(myIP[3]); 
 }
@@ -147,6 +168,7 @@ void loop() {
       // Make sure MQTT is still connected
       if (useMQTT == true){
         mqttClient.loop();
+        // make sure MQTT stays connected
         if (!mqttClient.connected()) {
           reconnect_mqtt();
         }
@@ -158,13 +180,16 @@ void loop() {
   // check if a timer needs to be activated
   for (int tmCheck = 0; tmCheck < maxTimers; tmCheck++){
      if (runTimes[tmCheck].active == 1 ){
+        colourObj tmC;
         if (runTimes[tmCheck].startTime == currMinute && runTimes[tmCheck].status == 0 ){
-            // set the requested colour
-            setRGBColor(runTimes[tmCheck].red,runTimes[tmCheck].green,runTimes[tmCheck].blue,runTimes[tmCheck].white,true);
+            // set the requested colour based on timer
+            tmC = fillColourObj(runTimes[tmCheck].red,runTimes[tmCheck].green,runTimes[tmCheck].blue,runTimes[tmCheck].white);
+            setRGBColor(tmC,true);
             // set the status to 1 to prevent multiple start in the minute
             runTimes[tmCheck].status=1;
         } else if (runTimes[tmCheck].endTime == currMinute && runTimes[tmCheck].status == 0 ){
-            setRGBColor(0,0,0,0,false);
+            tmC = fillColourObj(0,0,0,0);
+            setRGBColor(tmC,false);
              // set the status to 0 to prevent multiple sops in the minute
             runTimes[tmCheck].status=1;
         }  
@@ -187,9 +212,8 @@ void loop() {
         respMsg = "Ready";     // HTTP Respons Message
         // Read the first line of of the request
         String req = espClient.readStringUntil('\r');
-        setupTimers = false;
+        setupTimers = false; // can change in processrequest
         processRequest (req,espClient);  // for commands
-        
         String s = "Something went wrong with web interface";
         if (req.indexOf("/api/") == -1) {
             if (setupMode == false){
@@ -204,7 +228,7 @@ void loop() {
             }
             break;
         } else if (req.indexOf("/api/") != -1){
-            //  If used from api just a line reply
+            //  Make a JSON reply that the receiver can handle
             if (setupMode == false){
               datVal =  respMsg.c_str();
               JsonObject& root = jsonBuffer.createObject();
@@ -212,10 +236,10 @@ void loop() {
               root["status"] = (errVal==true?"Error occured, check your request":"OK");
               root["message"] = datVal;
               JsonObject& colours = root.createNestedObject("colours");
-              colours["red"]=currRed;
-              colours["green"]=currGreen;
-              colours["blue"]=currBlue;
-              colours["white"]=currWhite;
+              colours["red"]=currColours.red;
+              colours["green"]=currColours.green;
+              colours["blue"]=currColours.blue;
+              colours["white"]=currColours.white;
               JsonObject& updated = root.createNestedObject("updated");
               updated["time"] = formTime;
               updated["eeprom"] = eepVal;
@@ -224,7 +248,6 @@ void loop() {
               // must stop otherwise MQTT is not sent
               espClient.stop();
               delay(500); 
-              //sendWithMQTT();
             } else {
               espClient.print(respMsg);
             }
@@ -251,7 +274,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.write(payload, length);
   Serial.print(" length: ");
   Serial.println(length);
-  
+  // Read the payload and see if it is a JSON object
   StaticJsonBuffer<500> jsonBuffer;
   JsonObject& message = jsonBuffer.parseObject((char *)payload);
   if (!message.success()) {
@@ -263,19 +286,25 @@ void callback(char* topic, byte* payload, unsigned int length) {
       Serial.println("-----------------------");  
       return;
   }
+  // payload.colours is the request to control by MQTT
   JsonArray& colours=message["payload"]["colours"];
   if (colours.size() > 0){
-    int tRed=colours[0]["red"];
-    int tGreen=colours[0]["green"];
-    int tBlue = colours[0]["blue"];
-    int tWhite = colours[0]["white"];
-    setRGBColor(tRed,tGreen,tBlue,tWhite,true);
+    colourObj tmC = fillColourObj(colours[0]["red"],colours[0]["green"],colours[0]["blue"],colours[0]["white"]);
+    setRGBColor(tmC,true);
   }
     
   
 }
+colourObj fillColourObj(int red, int green, int blue, int white){
+    colourObj vars;
+    vars.red = red;
+    vars.green = green;
+    vars.blue = blue;
+    vars.white = white;
+    return vars;
+}
 String getValue(String req) {
-
+  // get the value of the request (may need changes later)
   int val_start = req.indexOf('?');
   if (val_start == -1){
      val_start = req.indexOf('=');
@@ -311,10 +340,11 @@ unsigned char h2int(char c){
     return(0);
 }
 void interfaceUser(WiFiClient espClient) {
-  String onoff=(currRed + currGreen + currBlue + currWhite > 0?"off":"on");
-  String clr = (currRed<16?"0":"")+String(currRed, HEX);
-  clr += (currGreen<16?"0":"") +String(currGreen,HEX);
-  clr += (currBlue<16?"0":"") +String(currBlue,HEX);
+  // build and send the user interface
+  String onoff=(currColours.red + currColours.green + currColours.blue + currColours.white > 0?"off":"on");
+  String clr = (currColours.red<16?"0":"")+String(currColours.red, HEX);
+  clr += (currColours.green<16?"0":"") +String(currColours.green,HEX);
+  clr += (currColours.blue<16?"0":"") +String(currColours.blue,HEX);
 
   espClient.print ("<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0'><meta charset='utf-8'>");
   espClient.print ("<style>#map {height: 100%;} html, body {height: 100%; margin: 25px; padding: 10px;font-family: Sans-Serif;} #container{max-width:600px;} #footer{position: absolute;bottom: 0; font-size:8px;}</style>");
@@ -326,10 +356,10 @@ void interfaceUser(WiFiClient espClient) {
   espClient.print ("<button type='button' class='btn btn-success btn myBtn' style='display:none;' id='led-on'><i class='far fa-lightbulb fa-2x'></i>Switch On</button>");
   espClient.print ("<button type='button' class='btn btn-secondary btn myBtn' style='display:none;' id='led-off'><i class='fas fa-lightbulb fa-2x'></i>Switch Off</button><br>");
   espClient.print ("<div>Move slider to change colour</div>");
-  espClient.print ("<div><table><tr><td>Red</td><td><input id='red' class='range' type='range' min='0' max='255' value='"+(String)currRed+"'></td><td style='text-align: right;'><span id='vred'>"+(String)currRed+"</span></td></tr>");
-  espClient.print ("<tr><td>Green</td><td><input id='green' class='range' type='range' min='0' max='255' value='"+(String)currGreen+"'></td><td style='text-align:right;'><span id='vgreen'>"+(String)currGreen+"</span></td></tr>");
-  espClient.print ("<tr><td>Blue</td><td><input id='blue' class='range' type='range' min='0' max='255' value='"+(String)currBlue+"'></td><td style='text-align:right;'><span id='vblue'>"+(String)currBlue+"</span></td></tr>");
-  espClient.print ("<tr><td>White</td><td><input id='white'class='range' type='range' min='0' max='255' value='"+(String)currWhite+"'></td><td style='text-align:right;'><span id='vwhite'>"+(String)currWhite+"</span></td></tr></table><div>");
+  espClient.print ("<div><table><tr><td>Red</td><td><input id='red' class='range' type='range' min='0' max='255' value='"+(String)currColours.red+"'></td><td style='text-align: right;'><span id='vred'>"+(String)currColours.red+"</span></td></tr>");
+  espClient.print ("<tr><td>Green</td><td><input id='green' class='range' type='range' min='0' max='255' value='"+(String)currColours.green+"'></td><td style='text-align:right;'><span id='vgreen'>"+(String)currColours.green+"</span></td></tr>");
+  espClient.print ("<tr><td>Blue</td><td><input id='blue' class='range' type='range' min='0' max='255' value='"+(String)currColours.blue+"'></td><td style='text-align:right;'><span id='vblue'>"+(String)currColours.blue+"</span></td></tr>");
+  espClient.print ("<tr><td>White</td><td><input id='white'class='range' type='range' min='0' max='255' value='"+(String)currColours.white+"'></td><td style='text-align:right;'><span id='vwhite'>"+(String)currColours.white+"</span></td></tr></table><div>");
   espClient.print ("<div>Or select a colour with the colour picker.</div>");
   espClient.print ("<div><input type='text' id='custom' /></div>");
   espClient.print ("<div id='w' class='alert alert-info' role='alert'> " + respMsg + "</div>");
@@ -342,11 +372,13 @@ void interfaceUser(WiFiClient espClient) {
   espClient.print ("<script>");
   espClient.println ("$(document).ready(function($) {");
   espClient.println ("  function send(dowhat){"); 
-  espClient.println ("    $('#w').html('Please wait until action has finished.');");
+  espClient.println ("    $('#w').html('Please wait until action has finished. ');");
+  espClient.println ("    $('.range').prop('disabled', true);");
   espClient.println ("    $.get({url:'/api/command/' + dowhat,"); // send the request using AJAX
   espClient.println ("      dataType:'json',");
   espClient.println ("       success:function(data){");
   espClient.println ("          $('#w').html(data.message);");
+  espClient.println ("          $('.range').prop('disabled', false);");
   espClient.println ("          var c = data.colours;");
   espClient.println ("          $('#red').val(c.red);");      // update 4 sliders
   espClient.println ("          $('#green').val(c.green);");
@@ -397,6 +429,7 @@ void interfaceUser(WiFiClient espClient) {
   espClient.stop();     
 }
 void interfaceSetUp(WiFiClient espClient){
+  // Build the wifi setup interface
   espClient.print ("<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0'><meta charset='utf-8'>");
   espClient.print ("<style>#map {height: 100%;} html, body {height: 100%; margin: 25px; padding: 10px; font-family: Sans-Serif;} #container{max-width:600px;} button, input, select {margin:15px 0px} #footer{position: absolute;bottom: 0;}</style>");
   espClient.print ("</head>");
@@ -427,6 +460,7 @@ void interfaceSetUp(WiFiClient espClient){
   espClient.stop();
 }
 void interfaceTimers(WiFiClient espClient){
+  // Build the timers interface
   espClient.print ("<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0'><meta charset='utf-8'>");
   espClient.print ("<style>#map {height: 100%;} html, body {height: 100%; margin: 25px; padding: 10px;font-family: Sans-Serif;}");
   espClient.print ("#container{max-width:600px;} #footer{position: absolute;bottom: 0; font-size:8px;} tr th, .tac{text-align:center;}");
@@ -482,25 +516,19 @@ void interfaceTimers(WiFiClient espClient){
   espClient.stop(); 
 }
 void interfaceTimerRow(WiFiClient espClient,int n){
-  int totMins;
-  int rdHr;
-  int rdMin;
-  int cHk;
-  String Check;
-  String pos; 
-  pos=(String)n;
-  totMins = runTimes[n].startTime;
-  rdHr=0; rdMin=0;
-  if (totMins > 0){ rdHr = totMins/60; rdMin =totMins-(rdHr*60); }
+  // Set the rows for the timers
+  int totMins = runTimes[n].startTime;
+  int rdHr = 0;
+  int rdMin = 0;
+  String Check = (runTimes[n].active == 0?"":"checked");
+  String pos = (String)n; 
+  // calculate the hours and minutes  
+  if (totMins > 0){ rdHr = totMins/60; rdMin = totMins - (rdHr*60); }
   espClient.print ("<tr><td><input type='number' class='mc' id='starthrs-"+pos+"' min='0' max='23' value='"+(String)rdHr+"'><b>:</b>");
   espClient.println("<input type='number' class='mc' id='startmin-"+pos+"' min='0' max='59' value='"+(String)rdMin+"'></td>");
   totMins = runTimes[n].endTime;
-  rdHr=0;
-  rdMin=0;
-  if (totMins > 0){ rdHr = totMins/60; rdMin = totMins-(rdHr*60); }
-  Check="checked";
-  cHk = runTimes[n].active;
-  if (cHk == 0){Check = ""; }
+  rdHr=0;  rdMin=0;
+  if (totMins > 0){ rdHr = totMins/60; rdMin = totMins - (rdHr*60); }
   espClient.print ("<td><input type='number' class='mc' id='endhrs-"+pos+"' min='0' max='23' value='"+(String)rdHr+"'><b>:</b>");
   espClient.println ("<input type='number' class='mc' id='endmin-"+pos+"' min='0' max='59' value='"+(String)rdMin+"'></td>");
   espClient.println("<td><input type='number' class='mc' id='red-"+pos+"' min='0' max='255' value='"+(String)runTimes[n].red+"'></td>");
@@ -511,6 +539,7 @@ void interfaceTimerRow(WiFiClient espClient,int n){
   espClient.println("<td><button type='button' id='save-"+pos+"' class='store btn btn-outline-secondary btn-sm'><i class='far fa-save'></i><td></tr>");
 }
 void initLEDS(){
+  // set the channels and the frequency for the leds
   ledcSetup(LEDC_CHANNEL_0_R, LEDC_BASE_FREQ, LEDC_TIMER_13_BIT);
   ledcAttachPin(LED_PIN_R, LEDC_CHANNEL_0_R);
   
@@ -524,7 +553,8 @@ void initLEDS(){
   ledcAttachPin(LED_PIN_W, LEDC_CHANNEL_3_W);
 }
 void initToSerial(){
-   Serial.println();
+  // send the initialisation data to serial monitor
+  Serial.println();
   Serial.println("Serial started");
   if (setupMode == true){
     Serial.println("AP started");
@@ -539,12 +569,11 @@ void initToSerial(){
     Serial.println("Enter this address in your Internet browser.");
   }
 }
-void ledcAnalogWrite(uint8_t channel, uint32_t value, uint32_t valueMax = 255) {
+void ledcAnalogWrite(uint8_t channel, uint32_t value, uint32_t valueMax) {
   // Arduino like analogWrite
   // value has to be between 0 and valueMax
   // calculate duty
   uint32_t duty = (LEDC_BASE_FREQ / valueMax) * min(value, valueMax);
-
   // write duty to LEDC
   ledcWrite(channel, duty);
 }
@@ -569,14 +598,14 @@ void processRequest(String req, WiFiClient espClient){
         // al requests must end with an forward slash /
         if (req.indexOf("/command/on") != -1) {
            // switch all on
-           EEPROM.get(EEred,currRed);
-           EEPROM.get(EEgreen,currGreen);
-           EEPROM.get(EEblue,currBlue);
-           EEPROM.get(EEwhite,currWhite);
-           ledcAnalogWrite(LEDC_CHANNEL_0_R, currRed);
-           ledcAnalogWrite(LEDC_CHANNEL_1_G, currGreen);
-           ledcAnalogWrite(LEDC_CHANNEL_2_B, currBlue);
-           ledcAnalogWrite(LEDC_CHANNEL_3_W, currWhite);
+           EEPROM.get(EEred,currColours.red);
+           EEPROM.get(EEgreen,currColours.green);
+           EEPROM.get(EEblue,currColours.blue);
+           EEPROM.get(EEwhite,currColours.white);
+           ledcAnalogWrite(LEDC_CHANNEL_0_R, currColours.red);
+           ledcAnalogWrite(LEDC_CHANNEL_1_G, currColours.green);
+           ledcAnalogWrite(LEDC_CHANNEL_2_B, currColours.blue);
+           ledcAnalogWrite(LEDC_CHANNEL_3_W, currColours.white);
            respMsg = "LEDS returned to old state ";
         } else if (req.indexOf("/command/off") != -1) {
            // switch all off 
@@ -640,8 +669,8 @@ void processRequest(String req, WiFiClient espClient){
             if (Green > 255) {Green = 255;}
             if (Blue > 255) {Blue = 255;}
             if (White > 255) {White = 255;}
-
-            setRGBColor(Red,Green,Blue,White,true);
+            colourObj tmC = fillColourObj(Red,Green,Blue,White);
+            setRGBColor(tmC,true);
             respMsg = "OK Colours set to Red: "+(String)Red+" Green: "+(String)Green+" Blue: "+(String)Blue+" White: "+(String)White;
         } else if (req.indexOf("/command/hex") != -1) {
             // set the colour in hex example hex?FFEEDDCC/ or hex?FFEEDD/
@@ -679,7 +708,8 @@ void processRequest(String req, WiFiClient espClient){
               if (n == 8){
                  White = strtol(cWhite, NULL, 16);
               }
-              setRGBColor(Red,Green,Blue,White,true);
+              colourObj tmC = fillColourObj(Red,Green,Blue,White);
+              setRGBColor(tmC,true);
               respMsg = "Colours set to Red: "+(String)Red+" Green: "+(String)Green+" Blue: "+(String)Blue+" White: "+(String)White;
             } else {
               errVal = true;
@@ -721,6 +751,35 @@ void processRequest(String req, WiFiClient espClient){
           respMsg = "The timer has been saved. Timer id is:" + (String)id;
         }
 }
+void publishToMQTT(){
+  if (useMQTT == false){ return ;}
+  //check if connected
+  if (!mqttClient.connected()) {
+    reconnect_mqtt();
+  }
+  // built the json object beware the limit is 128 Characters (pubSubClient)
+  JsonObject& JSONencoder = jsonBuffer.createObject();
+  JSONencoder["device"] = "ESP32 " + version;
+  JSONencoder["sType"] = "RGBw";
+  JSONencoder["time"] = formTime;
+  JsonObject& colours = JSONencoder.createNestedObject("colours");
+  colours["r"]=currColours.red;
+  colours["g"]=currColours.green;
+  colours["b"]=currColours.blue;
+  colours["w"]=currColours.white;
+  // made the buffer big if PubSubClient has update it might work for larger
+  char JSONmessageBuffer[512];
+  JSONencoder.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
+  if (mqttClient.connected()) {
+    if (mqttClient.publish(mqttTopicPublish, JSONmessageBuffer) == true) {
+      Serial.println("Success sending message by MQTT");
+    } else {
+      Serial.println("Error sending message by MQTT");
+    }
+  } else {
+    Serial.println("MQTT not connected");
+  }
+}
 void reconnect_mqtt() {
   // Loop until we're reconnected
   while (!mqttClient.connected()) {
@@ -741,6 +800,7 @@ void reconnect_mqtt() {
   }
 }
 void resetTimer(){
+  // to prevent ESP from being unresponsive restart once a day at 01:53
   timeClient.update();
   formTime = timeClient.getFormattedTime();
   if (timeClient.getHours()==1 &&
@@ -750,20 +810,21 @@ void resetTimer(){
   }  
 }
 String recvVar(String req, String base, String nm){
-   int val_base = req.indexOf(base);
-   int val_id = req.indexOf(nm,val_base);
-   int val_eq = req.indexOf("=",val_id);
-   int val_end = req.indexOf('&',val_eq);
+   // find the value from a variable in a (url)request
+   int val_base = req.indexOf(base);  // start looking after this part
+   int val_id = req.indexOf(nm,val_base); // after the base find the value name - nm
+   int val_eq = req.indexOf("=",val_id);  // a value name is closed by an =
+   int val_end = req.indexOf('&',val_eq); // the value is close by an & if there are more
    if (val_end == -1){
-      val_end = req.indexOf("/",val_eq);
+      val_end = req.indexOf("/",val_eq);  // or by / if it is the last value
    }
    if (val_end == -1){
-      val_end = req.indexOf(" ",val_eq);
+      val_end = req.indexOf(" ",val_eq);  // for the lazy ones that forget to close with /
    }
-   String dat = req.substring(val_eq+1,val_end);
-   if (  dat == ""){ dat ="0"; }
-   Serial.print (nm + ": ");
-   Serial.println(dat);
+   String dat = req.substring(val_eq+1,val_end); // the value is between the = and  & / ' '
+   if (  dat == ""){ dat ="0"; } // if it was  empty fill with 0so we can toInt() it.
+   //Serial.print (nm + ": ");
+   //Serial.println(dat);
    return dat;
 }
 void scanNetworks(){
@@ -785,51 +846,26 @@ void scanNetworks(){
     }
     
 }
-void sendWithMQTT(){
-  if (!mqttClient.connected()) {
-    reconnect_mqtt();
-  }
-  JsonObject& JSONencoder = jsonBuffer.createObject();
-  JSONencoder["device"] = "ESP32 " + version;
-  JSONencoder["sType"] = "RGBw";
-  JSONencoder["time"] = formTime;
-  JsonObject& colours = JSONencoder.createNestedObject("colours");
-  colours["r"]=currRed;
-  colours["g"]=currGreen;
-  colours["b"]=currBlue;
-  colours["w"]=currWhite;
-  char JSONmessageBuffer[512];
-  JSONencoder.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
-  //Serial.println(JSONmessageBuffer);
-  if (mqttClient.connected()) {
-    if (mqttClient.publish(mqttTopicPublish, JSONmessageBuffer) == true) {
-      Serial.println("Success sending message by MQTT");
-    } else {
-      Serial.println("Error sending message by MQTT");
-    }
-  } else {
-    Serial.println("MQTT not connected");
-  }
-}
 void setOneColour(uint32_t V, String Clr ){
     // set var for default
     int Pin = LED_PIN_W;
-    int currTemp = currWhite;
+    int currTemp = currColours.white;
     int Channel = LEDC_CHANNEL_3_W;
     // set the proper pin and current colour
     if ( Clr == "red"){
        Pin = LED_PIN_R; 
-       currTemp = currRed;
+       currTemp = currColours.red;
        Channel = LEDC_CHANNEL_0_R; 
     } else if (Clr == "green"){
        Pin = LED_PIN_G; 
-       currTemp = currGreen;
+       currTemp = currColours.green;
        Channel = LEDC_CHANNEL_1_G; 
     } else if (Clr == "blue"){
        Pin = LED_PIN_B; 
-       currTemp = currBlue; 
+       currTemp = currColours.blue; 
        Channel = LEDC_CHANNEL_2_B;
     } 
+    // Set the proper channel and frequency
     ledcSetup(Channel, LEDC_BASE_FREQ ,LEDC_TIMER_13_BIT);
     ledcAttachPin(Pin, Channel);
     for (int doUp = 0; doUp <= 255; doUp++) {
@@ -845,71 +881,67 @@ void setOneColour(uint32_t V, String Clr ){
     }
     //update the current colour and write to eeprom
     if (Clr == "red"){
-       currRed = V; 
+       currColours.red = V; 
        writeData(EEred, V);
     } else if (Clr == "green"){
-       currGreen = V; 
+       currColours.green = V; 
        writeData(EEgreen, V);
     } else if (Clr == "blue"){
-       currBlue = V; 
+       currColours.blue = V; 
        writeData(EEblue, V);
     } else if (Clr == "white"){
-       currWhite = V; 
+       currColours.white = V; 
        writeData(EEwhite, V);
     } 
-    sendWithMQTT();
+    // publish to MQTT
+    publishToMQTT();
 }
-void setRGBColor(uint32_t R, uint32_t G, uint32_t B, uint32_t W, bool toEEprom) {
-    // all colours are called in each cycle to make all leds
-    // increase or decrease at the same moment.
-    // Getting more light first is to prevent flashes 
-    for (int doUp = 0; doUp <= 255; doUp++) {
-      if (doUp > currRed && currRed < R && doUp <= R){
-        ledcAnalogWrite(LEDC_CHANNEL_0_R, doUp);
-      }
-      if (doUp > currGreen && currGreen < G && doUp <= G ){
-        ledcAnalogWrite(LEDC_CHANNEL_1_G, doUp);
-      }
-      if (doUp > currBlue && currBlue < B && doUp <= B){
-        ledcAnalogWrite(LEDC_CHANNEL_2_B, doUp);
-      }
-      if (doUp > currWhite && currWhite < W && doUp <= W){
-        ledcAnalogWrite(LEDC_CHANNEL_3_W, doUp);
-      }
-      int down = 255-doUp;
-      if (down < currRed  && currRed > R && down >= R ){
-        ledcAnalogWrite(LEDC_CHANNEL_0_R, down);
-      }
-      if (down < currGreen  && currGreen > G && down >= G ){
-        ledcAnalogWrite(LEDC_CHANNEL_1_G, down);
-      }
-      if (down < currBlue && currBlue > B && down >= B  ){
-        ledcAnalogWrite(LEDC_CHANNEL_2_B, down);
-      }
-      if (down < currWhite && currWhite > W && down >= W  ){
-        ledcAnalogWrite(LEDC_CHANNEL_3_W, down);
-      }
-      // the delay can't be too large it would stop the loop
-      // 10 is about 2.5 second (255 * 10)
-      delay (delayMills);
-      
-      
+void setRGBColor(colourObj rC, bool toEEprom) {
+  // all colours are called in each cycle to make all leds
+  // increase or decrease at the same moment.
+  // Getting more light first is to prevent flashes 
+  for (int doUp = 0; doUp <= 255; doUp++) {
+    if (doUp > currColours.red && currColours.red < rC.red && doUp <= rC.red){
+      ledcAnalogWrite(LEDC_CHANNEL_0_R, doUp);
     }
-    
-  
-  Serial.println("Red: "+(String)R+" Green: "+(String)G+" Blue: "+(String)B+" White: "+(String)W);
-  // store the last set colours and store in eeprom
-  currRed = R;
-  currGreen = G;
-  currBlue = B;
-  currWhite = W;
-  if (toEEprom==true){
-    writeData(EEred, currRed);
-    writeData(EEgreen, currGreen);
-    writeData(EEblue, currBlue);
-    writeData(EEwhite, currWhite);
+    if (doUp > currColours.green && currColours.green < rC.green && doUp <= rC.green ){
+      ledcAnalogWrite(LEDC_CHANNEL_1_G, doUp);
+    }
+    if (doUp > currColours.blue && currColours.blue < rC.blue && doUp <= rC.blue){
+      ledcAnalogWrite(LEDC_CHANNEL_2_B, doUp);
+    }
+    if (doUp > currColours.white && currColours.white < rC.white && doUp <= rC.white){
+      ledcAnalogWrite(LEDC_CHANNEL_3_W, doUp);
+    }
+    int down = 255-doUp;
+    if (down < currColours.red  && currColours.red > rC.red && down >= rC.red ){
+      ledcAnalogWrite(LEDC_CHANNEL_0_R, down);
+    }
+    if (down < currColours.green  && currColours.green > rC.green && down >= rC.green ){
+      ledcAnalogWrite(LEDC_CHANNEL_1_G, down);
+    }
+    if (down < currColours.blue && currColours.blue > rC.blue && down >= rC.blue  ){
+      ledcAnalogWrite(LEDC_CHANNEL_2_B, down);
+    }
+    if (down < currColours.white && currColours.white > rC.white && down >= rC.white  ){
+      ledcAnalogWrite(LEDC_CHANNEL_3_W, down);
+    }
+    // the delay can't be too large it would stop the loop
+    // 10 is about 2.5 second (255 * 10) set in vars.h
+    delay (delayMills);
   }
-  sendWithMQTT();
+  //Serial.println("Red: "+(String)R+" Green: "+(String)G+" Blue: "+(String)B+" White: "+(String)W);
+  // store the last set colours and store in eeprom
+  currColours = rC;
+
+  if (toEEprom==true){
+    writeData(EEred, rC.red);
+    writeData(EEgreen, rC.green);
+    writeData(EEblue, rC.blue);
+    writeData(EEwhite, rC.white);
+  }
+  // publish to MQTT
+  publishToMQTT();
 }
 void setupOTA(){
   // Set up Over The Air updates
@@ -945,28 +977,32 @@ void setupOTA(){
 }
 void startColours(){
   if (justOnce == false){
+    // switch all off really fast
     ledcAnalogWrite(LEDC_CHANNEL_0_R, 0);
     ledcAnalogWrite(LEDC_CHANNEL_1_G, 0);
     ledcAnalogWrite(LEDC_CHANNEL_2_B, 0);
     ledcAnalogWrite(LEDC_CHANNEL_3_W, 0);
     // restore to latest setting after restart
     // retrieve data from EEprom if available
-    EEPROM.get(EEred,currRed);
-    EEPROM.get(EEgreen,currGreen);
-    EEPROM.get(EEblue,currBlue);
-    EEPROM.get(EEwhite,currWhite);
-    ledcAnalogWrite(LEDC_CHANNEL_0_R, currRed);
-    ledcAnalogWrite(LEDC_CHANNEL_1_G, currGreen);
-    ledcAnalogWrite(LEDC_CHANNEL_2_B, currBlue);
-    ledcAnalogWrite(LEDC_CHANNEL_3_W, currWhite);
-    Serial.println("first colours set");
+    EEPROM.get(EEred,currColours.red);
+    EEPROM.get(EEgreen,currColours.green);
+    EEPROM.get(EEblue,currColours.blue);
+    EEPROM.get(EEwhite,currColours.white);
+    // switch all on really fast
+    ledcAnalogWrite(LEDC_CHANNEL_0_R, currColours.red);
+    ledcAnalogWrite(LEDC_CHANNEL_1_G, currColours.green);
+    ledcAnalogWrite(LEDC_CHANNEL_2_B, currColours.blue);
+    ledcAnalogWrite(LEDC_CHANNEL_3_W, currColours.white);
+    Serial.println("First colours set!");
     justOnce = true;
   }
 }
 bool testRecvVal(int rVal){
+   // the colour value must be between 0 and 255 both included
    if ( rVal >= 0 && rVal <= 255 ){
       return true;
    } else {
+      //will show the error in response JSON
       errVal = true;
       respMsg = "colour value out of range";
       return false;
@@ -1035,7 +1071,7 @@ String urlencode(String str){
 void writeData(uint8_t addr, uint32_t datInt){
     int testVar = 0;
     // to conserve flash memory only write when differs
-    
+    // only used for colours and EEset
     EEPROM.get(addr,testVar);
     String tcl="White";
     if (addr == 4){
@@ -1051,7 +1087,6 @@ void writeData(uint8_t addr, uint32_t datInt){
        EEPROM.put(addr,datInt);
        EEPROM.commit();
        if (debugPrint ==true){
-          
           Serial.print("-- Updated EEPROM "+tcl+" to: ");
           eepVal="Data has been updated";
           testVar = 0; 
@@ -1064,6 +1099,7 @@ void writeData(uint8_t addr, uint32_t datInt){
     }  
 }
 void write_timer_toEEPROM(ledTimer timedat){
+  // EEprom address for writing
   uint8_t startAddr = EEtimer5;
   if (timedat.id==0){
     startAddr = EEtimer1;
@@ -1074,13 +1110,14 @@ void write_timer_toEEPROM(ledTimer timedat){
   } else if (timedat.id==3){
     startAddr = EEtimer4;
   }
-  
   EEPROM.put(startAddr, timedat);
   EEPROM.commit(); 
-  Serial.println("Timer is saved"); 
+  Serial.println("Timer data Object is saved");
+  // also update the runTime object so we don't have to reload all timers 
   runTimes[timedat.id] = timedat; 
 }
 ledTimer read_timer_fromEEPROM(int id){
+  // Read addresses for timers
   uint8_t startAddr = EEtimer5;  
   if (id==0){
     startAddr = EEtimer1;
@@ -1091,22 +1128,26 @@ ledTimer read_timer_fromEEPROM(int id){
   } else if (id==3){
     startAddr = EEtimer4;
   }
-  
+  // set the Object
   ledTimer readEE;
   EEPROM.get(startAddr, readEE);
-  Serial.println("Read timer object with id: " + (String) id +" from EEPROM: ");
+  Serial.println("Read timer object with id: " + (String) id +" from EEPROM");
   return readEE;   
 }
 void write_wifi_toEEPROM(uint8_t startAddr, String strSSID, String strPW){
+  // Set Object
   wifiConn vars;
+  // enter the two parameters
   strSSID.toCharArray(vars.eSsid, sizeof(vars.eSsid));
   strPW.toCharArray(vars.ePasw, sizeof(vars.ePasw));
+  // Put and commit
   EEPROM.put(startAddr, vars);
   EEPROM.commit();  
 }
 wifiConn read_wifi_fromEEPROM(uint8_t startAddr){
   wifiConn readEE;        //Variable to store custom object read from EEPROM.
   EEPROM.get(startAddr, readEE);
-  Serial.println("Read wifi connection object from EEPROM: ");
+  Serial.print("Read wifi connection object from EEPROM will connect to ");
+  Serial.println(readEE.eSsid);
   return readEE;    
 }
