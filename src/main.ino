@@ -786,7 +786,8 @@ void reconnect_mqtt() {
     //Serial.print("Attempting MQTT connection...");
     // Attempt to connect
     // If you do not want to use a username and password, change next line to
-    if (mqttClient.connect("ESP32Client", my_MQTT_USER, my_MQTT_PW)) {
+    const char *clientId = "ESP32"+(random(0xffff), HEX);
+    if (mqttClient.connect(clientId, my_MQTT_USER, my_MQTT_PW)) {
       mqttClient.setCallback(callback);
       mqttClient.subscribe(mqttTopicSubscribe);
       //Serial.println("MQTT reconnected");
