@@ -72,6 +72,8 @@ always use closing /
 
 ## Usage with MQTT
 With MQTT you must publish a JSON Object. Standard subscribe for the ESP is set to esp/in. You must use this format. If all the colours are set to 0 the RGBw strip is off.
+
+Important set QoS to **1 or 2** when sending and retain **false**; (if retain is true the subscribed message comes in on ever resubscribe)
 ```
 /*
 {"payload":{"colours":[{"red":255,
