@@ -78,8 +78,8 @@ Important set QoS to **1 or 2** when sending and retain **false**; (if retain is
 /*
 {"payload":{"colours":[{"red":255,
                         "green":128,
-                         "blue":64,
-                         "white":32}]}}
+                        "blue":64,
+                        "white":32}]}}
 */
 ```
 
@@ -104,13 +104,13 @@ Important set QoS to **1 or 2** when sending and retain **false**; (if retain is
 ## reply to MQTT
 ```
 /*
-esp/out {"device":"ESP32",
-         "sensorType":"RGB Control",
+esp/out {"device":"ESP32 0.9.x",
+         "sType":"RGB Control",
          "time":"14:11:45",
-         "colours":{"red":0,
-                    "green":0,
-                    "blue":129,
-                    "white":0}
+         "colours":{"r":0,
+                    "g":0,
+                    "b":129,
+                    "w":0}
         }
 */
 
